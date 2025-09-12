@@ -1,69 +1,71 @@
 # CCGenTool 2
 
-Common Criteria Generation Tool 2 for Security Target Documents
+Common Criteria Generation Tool 2 for Security Target documents.
 
-## CCGenTool2 — Vue.js + FastAPI + Postgres
+## Features
 
-This scaffolds a simple full‑stack app with a dashboard UI and a Postgres‑backed CRUD for a "components" table.
+- **XML parsing** – upload a Common Criteria XML file and parse it via `/xml/parse`.
+- **Database import** – `/xml/import` parses and stores components into Postgres tables grouped by family.
+- **Database browser** – the Query Data page lists all functional and assurance tables. Selecting a table displays its rows.
+- **CRUD API** – `/components` endpoints provide create, read, update and delete operations.
 
-### What’s included
-- Backend: FastAPI, SQLAlchemy, psycopg2, health endpoint, CRUD for components
-- Frontend: Vue 3 + Vite with navbar, sidebar (accordion) and pages
-	- Home
-	- Database → Query Data, Modify Data (CRUD)
-- Docker Compose for Postgres and API
+## Project structure
 
-### Data model (components)
-- id (int, PK)
-- class (string, required) → stored as class_name in DB
-- family (string)
-- component (string)
-- component_name (string)
-- element (string)
-- element_item (string)
+- `oldparser/` – original scripts and sample `cc_2022.xml`.
+- `server/` – FastAPI backend (see `app/main.py`).
+- `web/` – Vue 3 frontend (Vite based).
+- `docker-compose.yml` – optional Postgres + API stack.
 
-### Endpoints
-- GET /health → DB status and latency
-- GET /components?q=... → list/filter
-- POST /components → create
-- GET /components/{id} → read
-- PUT /components/{id} → update
-- DELETE /components/{id} → delete
+## API overview
 
-### Quick start (Docker)
-1. Start Postgres + API
-	 - In repo root:
-	 ```bash
-	 docker compose up -d --build
-	 ```
-	 API: http://localhost:8000
+- `GET /health` – database status and latency.
+- `GET/POST/PUT/DELETE /components` – CRUD operations.
+- `POST /xml/parse` – parse an uploaded XML file.
+- `POST /xml/import` – parse and insert components into Postgres.
+- `GET /families` – list available family tables.
+- `GET /families/{table}` – query rows from a specific family table.
 
-2. Start Frontend (first time)
-	 ```bash
-	 cd web
-	 cp .env.example .env
-	 npm install
-	 npm run dev
-	 ```
-	 UI: http://localhost:5173
+## Getting started
 
-### Dev without Docker
-- Backend
-	```bash
-	cd server
-	python -m venv .venv && source .venv/bin/activate
-	pip install -r requirements.txt
-	export DATABASE_URL="postgresql+psycopg2://postgres:postgres@localhost:5432/appdb"
-	python run.py
-	```
-- Frontend
-	```bash
-	cd web
-	cp .env.example .env
-	npm install
-	npm run dev
-	```
+### Using Docker
 
-### Notes
-- Navbar shows DB status (ok/degraded) with latency.
-- Sidebar contains Home and Database; Database expands to Query Data and Modify Data.
+```bash
+docker compose up -d --build
+```
+
+API available at <http://localhost:8000>.
+
+Frontend:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open <http://localhost:5173> in a browser.
+
+### Manual setup
+
+Backend:
+
+```bash
+cd server
+pip install -r requirements.txt
+export DATABASE_URL="postgresql+psycopg2://postgres:postgres@localhost:5432/appdb"
+python run.py
+```
+
+Frontend:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+## Notes
+
+- The Query Data view lists all tables and lets you search each one.
+- After importing XML data, rows become visible in their respective family tables and via the `/components` CRUD endpoints.
+
