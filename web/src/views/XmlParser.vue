@@ -45,6 +45,31 @@
       {{ statusMessage }}
     </div>
 
+    <!-- Modal for notifications -->
+    <div v-if="showModal" class="modal-overlay" @click="closeModal">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>{{ modalTitle }}</h3>
+          <button class="modal-close" @click="closeModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="modalType === 'success'" class="modal-icon success">✓</div>
+          <div v-else-if="modalType === 'error'" class="modal-icon error">✗</div>
+          <div v-else class="modal-icon info">ℹ</div>
+          <p>{{ modalMessage }}</p>
+          <div v-if="modalDetails" class="modal-details">
+            <details>
+              <summary>Details</summary>
+              <pre>{{ modalDetails }}</pre>
+            </details>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button @click="closeModal" class="modal-btn">OK</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Parsed XML Tree View -->
     <div v-if="parsedData" class="parsed-data-section">
       <h3>Parsed XML Structure</h3>
@@ -56,26 +81,33 @@
     <!-- Components Preview -->
     <div v-if="extractedComponents && extractedComponents.length > 0" class="components-section">
       <h3>Extracted Components ({{ extractedComponents.length }})</h3>
-      <div class="data-table-wrapper">
-        <EasyDataTable
-          :headers="tableHeaders"
-          :items="extractedComponents"
-          :rows-per-page="20"
-          :show-index="true"
-          search-field="component_name"
-          search-value=""
-          alternating
-          buttons-pagination
-          :must-sort="false"
-          table-class-name="customize-table"
-        >
-          <template #item-element_item="{ item }">
-            <div class="element-item-cell">{{ item.element_item }}</div>
-          </template>
-          <template #empty-message>
-            <p>No components found.</p>
-          </template>
-        </EasyDataTable>
+      
+      <!-- Simple table instead of DataTable for now -->
+      <div class="simple-table-wrapper">
+        <table class="simple-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Class</th>
+              <th>Family</th>
+              <th>Component</th>
+              <th>Component Name</th>
+              <th>Element</th>
+              <th>Element Item</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(component, index) in extractedComponents" :key="index">
+              <td>{{ component.id }}</td>
+              <td>{{ component.class }}</td>
+              <td>{{ component.family }}</td>
+              <td>{{ component.component }}</td>
+              <td>{{ component.component_name }}</td>
+              <td>{{ component.element }}</td>
+              <td class="element-item-cell">{{ component.element_item }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       
       <!-- Import Summary -->
@@ -118,6 +150,13 @@ const parsedData = ref<any>(null)
 const extractedComponents = ref<any[]>([])
 const importSummary = ref<any>(null)
 
+// Modal data
+const showModal = ref(false)
+const modalTitle = ref('')
+const modalMessage = ref('')
+const modalDetails = ref('')
+const modalType = ref<'success' | 'error' | 'info'>('info')
+
 // DataTable headers
 const tableHeaders: Header[] = [
   { text: 'Class', value: 'class_name', sortable: true },
@@ -145,6 +184,18 @@ function handleFileSelect(event: Event) {
   }
 }
 
+function showModalNotification(title: string, message: string, type: 'success' | 'error' | 'info', details: string = '') {
+  modalTitle.value = title
+  modalMessage.value = message
+  modalType.value = type
+  modalDetails.value = details
+  showModal.value = true
+}
+
+function closeModal() {
+  showModal.value = false
+}
+
 async function parseXml() {
   if (!selectedFile.value) return
 
@@ -166,14 +217,37 @@ async function parseXml() {
       extractedComponents.value = response.data.components || []
       statusMessage.value = `Successfully parsed XML file. Found ${extractedComponents.value.length} components.`
       statusType.value = 'success'
+      
+      // Show success modal
+      showModalNotification(
+        'Parsing Complete',
+        `Successfully parsed XML file. Found ${extractedComponents.value.length} components.`,
+        'success'
+      )
     } else {
       statusMessage.value = response.data.message || 'Failed to parse XML file'
       statusType.value = 'error'
+      
+      // Show error modal
+      showModalNotification(
+        'Parsing Failed',
+        response.data.message || 'Failed to parse XML file',
+        'error'
+      )
     }
   } catch (error: any) {
     console.error('Error parsing XML:', error)
-    statusMessage.value = error.response?.data?.detail || 'Error parsing XML file'
+    const errorMessage = error.response?.data?.detail || 'Error parsing XML file'
+    statusMessage.value = errorMessage
     statusType.value = 'error'
+    
+    // Show error modal
+    showModalNotification(
+      'Parsing Error',
+      'An error occurred while parsing the XML file.',
+      'error',
+      JSON.stringify(error.response?.data || error.message, null, 2)
+    )
   } finally {
     isLoading.value = false
   }
@@ -201,16 +275,40 @@ async function importToDatabase() {
       statusMessage.value = `${response.data.message}. Imported: ${response.data.components_imported}, Failed: ${response.data.components_failed}`
       statusType.value = 'success'
       
+      // Show success modal
+      showModalNotification(
+        'Import Complete',
+        `Successfully imported XML data to database.`,
+        'success',
+        `Components imported: ${response.data.components_imported}\nComponents failed: ${response.data.components_failed}`
+      )
+      
       // Also parse to show the structure
       await parseXml()
     } else {
       statusMessage.value = response.data.message || 'Failed to import XML file'
       statusType.value = 'error'
+      
+      // Show error modal
+      showModalNotification(
+        'Import Failed',
+        response.data.message || 'Failed to import XML file',
+        'error'
+      )
     }
   } catch (error: any) {
     console.error('Error importing XML:', error)
-    statusMessage.value = error.response?.data?.detail || 'Error importing XML file'
+    const errorMessage = error.response?.data?.detail || 'Error importing XML file'
+    statusMessage.value = errorMessage
     statusType.value = 'error'
+    
+    // Show error modal
+    showModalNotification(
+      'Import Error',
+      'An error occurred while importing the XML file to database.',
+      'error',
+      JSON.stringify(error.response?.data || error.message, null, 2)
+    )
   } finally {
     isLoading.value = false
   }
@@ -402,5 +500,202 @@ async function importToDatabase() {
 .summary-item .value {
   font-weight: 600;
   color: var(--text);
+}
+
+/* Simple table styles */
+.simple-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  margin-top: 1rem;
+}
+
+.simple-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-secondary);
+}
+
+.simple-table th,
+.simple-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #374151;
+  color: var(--text);
+}
+
+.simple-table th {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.simple-table tbody tr:hover {
+  background: var(--bg-tertiary);
+}
+
+.simple-table .element-item-cell {
+  max-width: 300px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--bg);
+  border: 1px solid #374151;
+  border-radius: 12px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.modal-header {
+  padding: 1.5rem 1.5rem 0 1.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #374151;
+  margin-bottom: 1rem;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: var(--text);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.modal-close:hover {
+  background: var(--bg-soft);
+}
+
+.modal-body {
+  padding: 0 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.modal-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: bold;
+  margin-bottom: 1rem;
+}
+
+.modal-icon.success {
+  background: #064e3b;
+  color: #34d399;
+  border: 2px solid #059669;
+}
+
+.modal-icon.error {
+  background: #7f1d1d;
+  color: #fca5a5;
+  border: 2px solid #991b1b;
+}
+
+.modal-icon.info {
+  background: #0c4a6e;
+  color: #7dd3fc;
+  border: 2px solid #0284c7;
+}
+
+.modal-body p {
+  margin: 0 0 1rem 0;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.modal-details {
+  width: 100%;
+  margin-top: 1rem;
+  text-align: left;
+}
+
+.modal-details details {
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 0.5rem;
+  background: var(--bg-soft);
+}
+
+.modal-details summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--text);
+  padding: 0.5rem;
+}
+
+.modal-details pre {
+  margin: 0.5rem 0 0 0;
+  padding: 1rem;
+  background: var(--bg);
+  border: 1px solid #374151;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.875rem;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.modal-footer {
+  padding: 0 1.5rem 1.5rem;
+  display: flex;
+  justify-content: center;
+}
+
+.modal-btn {
+  padding: 0.75rem 2rem;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.modal-btn:hover {
+  background: #2563eb;
 }
 </style>

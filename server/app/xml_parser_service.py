@@ -88,6 +88,7 @@ class XmlParserService:
             raise ValueError(f"Invalid root element '{xml_doc.tag}'. Expected 'cc'.")
         
         self.root_node = XmlNode("Root")
+        self.xml_doc = xml_doc  # Store for component extraction
         
         for child_element in xml_doc:
             if child_element.tag in ['f-class', 'a-class', 'eal', 'cap']:
@@ -96,7 +97,7 @@ class XmlParserService:
         return {
             'success': True,
             'data': self.root_node.to_dict() if self.root_node else None,
-            'components': self._extract_components()
+            'components': self._extract_components_directly()
         }
     
     def import_to_database(self, xml_content: str, db: Session) -> Dict[str, Any]:
@@ -315,16 +316,24 @@ class XmlParserService:
         return ', '.join(filter(None, items_text))
     
     def _parse_fe_element_text(self, element) -> str:
-        """Parse text of an f-element that may contain fe-assignment and/or fe-selection elements."""
+        """Parse text of an f-element that may contain assignment/assignmentitem and/or selection elements."""
         text = element.text.strip() if element.text else ''
         
         for child in element:
-            if child.tag == 'fe-assignment':
+            if child.tag == 'assignment':
+                # Handle assignment elements (modern XML format)
+                assign_item = child.find("assignmentitem")
+                if assign_item is not None and assign_item.text:
+                    text += f' [assignment: {assign_item.text.strip()}]'
+                if child.tail and child.tail.strip():
+                    text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
+            elif child.tag == 'fe-assignment':
+                # Handle fe-assignment elements (legacy format)
                 fe_item = child.find("fe-assignmentitem")
                 if fe_item is not None and fe_item.text:
-                    text += f' [assignment: {fe_item.text.strip()}] '
+                    text += f' [assignment: {fe_item.text.strip()}]'
                 if child.tail and child.tail.strip():
-                    text += self._remove_newlines_and_extra_whitespaces(child.tail.strip())
+                    text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
             elif child.tag == 'fe-selection':
                 text += ' [selection: '
                 selection_items = child.findall('fe-selectionitem')
@@ -336,9 +345,9 @@ class XmlParserService:
                         assignment_text = [f"[assignment: {assign.text.strip()}]" for assign in assignments if assign.text]
                         if assignment_text:
                             text += ', ' + ', '.join(assignment_text)
-                    text += '] '
-                    if child.tail and child.tail.strip():
-                        text += self._remove_newlines_and_extra_whitespaces(child.tail.strip())
+                    text += ']'
+                if child.tail and child.tail.strip():
+                    text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
             elif child.tail and child.tail.strip():
                 text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
         
@@ -348,27 +357,26 @@ class XmlParserService:
         """Remove newlines and extra whitespace characters."""
         return re.sub(r'\s+', ' ', text.strip())
     
-    def _extract_components(self) -> List[Dict[str, str]]:
-        """Extract component data suitable for database insertion."""
+    def _extract_components_directly(self) -> List[Dict[str, str]]:
+        """Extract component data directly from the XML document."""
         components = []
-        if self.root_node:
-            self._extract_components_from_node(self.root_node, components, [])
+        
+        if not hasattr(self, 'xml_doc'):
+            return components
+        
+        # Find all f-element and a-element tags in the XML
+        for element in self.xml_doc.xpath('.//f-element | .//a-element'):
+            component_data = self._extract_component_from_element(element)
+            if self._is_valid_component(component_data):
+                components.append(component_data)
+        
         return components
     
-    def _extract_components_from_node(self, node: XmlNode, components: List[Dict[str, str]], path: List[str]) -> None:
-        """Recursively extract components from nodes."""
-        current_path = path + [node.label]
-        
-        # Skip root node in path
-        if node.label == "Root":
-            for child in node.children:
-                self._extract_components_from_node(child, components, [])
-            return
-        
-        # Extract component information based on the node structure
+    def _extract_component_from_element(self, element) -> Dict[str, str]:
+        """Extract component information from an f-element or a-element."""
         component_data = {
             'class_name': '',
-            'class_id': '',  # Add class_id for table mapping
+            'class_id': '',
             'family': '',
             'component': '',
             'component_name': '',
@@ -376,54 +384,84 @@ class XmlParserService:
             'element_item': ''
         }
         
-        # Parse path to extract component information
-        if len(current_path) >= 1:
-            # Extract class information
-            class_info = current_path[0]
-            if ' - ' in class_info:
-                parts = class_info.split(' - ')
-                component_data['class_name'] = parts[0]
-                if len(parts) > 1:
-                    component_data['component_name'] = parts[1]
-                
-                # Extract class ID from the node attributes if available
-                if hasattr(node, 'attributes') and 'id' in node.attributes:
-                    component_data['class_id'] = node.attributes['id']
-                elif 'id=' in class_info:
-                    # Extract id from the label if present
-                    id_match = re.search(r'id=([a-zA-Z]+)', class_info)
-                    if id_match:
-                        component_data['class_id'] = id_match.group(1)
+        # Get element ID
+        element_id = element.get('id', '')
+        component_data['element'] = element_id
         
-        if len(current_path) >= 2:
-            # Extract family information
-            family_info = current_path[1]
-            if ' - ' in family_info:
-                parts = family_info.split(' - ')
-                component_data['family'] = parts[0]
+        # Extract class_id from element_id (e.g., "fpr" from "fpr_ano.2.1")
+        if '_' in element_id:
+            component_data['class_id'] = element_id.split('_')[0]
         
-        if len(current_path) >= 3:
-            # Extract component information
-            component_info = current_path[2]
-            if ' - ' in component_info:
-                parts = component_info.split(' - ')
-                component_data['component'] = parts[0]
+        # Find parent hierarchy
+        component_elem = element.getparent()  # f-component
+        family_elem = component_elem.getparent() if component_elem is not None else None  # f-family
+        class_elem = family_elem.getparent() if family_elem is not None else None  # f-class
         
-        if len(current_path) >= 4:
-            # Extract element information
-            component_data['element'] = current_path[3]
+        # Extract class information
+        if class_elem is not None:
+            class_name = class_elem.get('name', '')
+            class_id = class_elem.get('id', '')
+            if class_name and class_id:
+                component_data['class_name'] = f"{class_id} - {class_name}"
+                if not component_data['class_id']:
+                    component_data['class_id'] = class_id
         
-        # If this is a leaf node with data, add element_item
-        if not node.children and node.data:
-            component_data['element_item'] = node.data
-        elif len(node.children) == 1 and not node.children[0].children:
-            component_data['element_item'] = node.children[0].label
+        # Extract family information
+        if family_elem is not None:
+            family_name = family_elem.get('name', '')
+            family_id = family_elem.get('id', '')
+            if family_name and family_id:
+                component_data['family'] = f"{family_id} - {family_name}"
         
-        # Only add if we have meaningful data
-        if any(component_data.values()):
-            components.append(component_data)
+        # Extract component information
+        if component_elem is not None:
+            component_id = component_elem.get('id', '')
+            component_name = component_elem.get('name', '')
+            component_data['component'] = component_id
+            component_data['component_name'] = component_name
         
-        # Recursively process children
-        for child in node.children:
-            if child.children:  # Only process if child has children (not leaf nodes)
-                self._extract_components_from_node(child, components, current_path)
+        # Extract element_item using the corrected parsing method
+        element_text = self._parse_element_text_content(element)
+        component_data['element_item'] = element_text
+        
+        return component_data
+    
+    def _parse_element_text_content(self, element) -> str:
+        """Parse the complete text content of an element including assignments."""
+        text = element.text.strip() if element.text else ''
+        
+        for child in element:
+            if child.tag == 'assignment':
+                # Handle assignment elements
+                assign_item = child.find("assignmentitem")
+                if assign_item is not None and assign_item.text:
+                    text += f' [assignment: {assign_item.text.strip()}]'
+                # Add tail text after assignment
+                if child.tail and child.tail.strip():
+                    text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
+            elif child.tag == 'fe-assignment':
+                # Handle fe-assignment elements (legacy format)
+                fe_item = child.find("fe-assignmentitem")
+                if fe_item is not None and fe_item.text:
+                    text += f' [assignment: {fe_item.text.strip()}]'
+                if child.tail and child.tail.strip():
+                    text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
+            elif child.tag == 'fe-selection':
+                # Handle selections
+                text += ' [selection: '
+                selection_items = child.findall('fe-selectionitem')
+                items_text = [item.text.strip() for item in selection_items if item.text and item.text.strip()]
+                if items_text:
+                    text += ', '.join(items_text)
+                text += ']'
+                if child.tail and child.tail.strip():
+                    text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
+            elif child.tail and child.tail.strip():
+                # Add any tail text after other elements
+                text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
+        
+        return self._remove_newlines_and_extra_whitespaces(text)
+    
+    def _is_valid_component(self, component_data: Dict[str, str]) -> bool:
+        """Check if component data has sufficient information to be valid."""
+        return bool(component_data.get('element') and component_data.get('element_item'))
