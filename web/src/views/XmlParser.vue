@@ -189,9 +189,9 @@ async function importToDatabase() {
 .upload-section {
   margin-bottom: 2rem;
   padding: 1.5rem;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  background-color: #f9f9f9;
+  border: 1px solid #374151;
+  border-radius: 12px;
+  background: var(--panel);
 }
 
 .file-input-wrapper {
@@ -206,7 +206,7 @@ async function importToDatabase() {
 }
 
 .selected-file {
-  color: #666;
+  color: var(--muted);
   font-style: italic;
 }
 
@@ -217,11 +217,13 @@ async function importToDatabase() {
 
 .btn {
   padding: 0.75rem 1.5rem;
-  border: none;
-  border-radius: 4px;
+  border: 1px solid #374151;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.9rem;
-  transition: background-color 0.2s;
+  transition: all 0.2s;
+  background: #1f2937;
+  color: var(--text);
 }
 
 .btn:disabled {
@@ -230,55 +232,59 @@ async function importToDatabase() {
 }
 
 .btn-primary {
-  background-color: #007bff;
+  background: var(--primary);
+  border-color: #2563eb;
   color: white;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: #0056b3;
+  background: #2563eb;
 }
 
 .btn-success {
-  background-color: #28a745;
+  background: var(--success);
+  border-color: #059669;
   color: white;
 }
 
 .btn-success:hover:not(:disabled) {
-  background-color: #1e7e34;
+  background: #059669;
 }
 
 .btn-info {
-  background-color: #17a2b8;
+  background: #0891b2;
+  border-color: #0e7490;
   color: white;
 }
 
 .btn-info:hover:not(:disabled) {
-  background-color: #117a8b;
+  background: #0e7490;
 }
 
 .status-message {
   padding: 1rem;
   margin: 1rem 0;
-  border-radius: 4px;
+  border-radius: 8px;
   font-weight: 500;
+  border: 1px solid #374151;
 }
 
 .status-message.success {
-  background-color: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
+  background: #064e3b;
+  color: #34d399;
+  border-color: #059669;
 }
 
 .status-message.error {
-  background-color: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
+  background: #7f1d1d;
+  color: #fca5a5;
+  border-color: #991b1b;
 }
 
 .status-message.info {
-  background-color: #d1ecf1;
-  color: #0c5460;
-  border: 1px solid #bee5eb;
+  background: #0c4a6e;
+  color: #7dd3fc;
+  border-color: #0284c7;
 }
 
 .parsed-data-section {
@@ -288,10 +294,10 @@ async function importToDatabase() {
 .tree-container {
   max-height: 600px;
   overflow-y: auto;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  border: 1px solid #374151;
+  border-radius: 8px;
   padding: 1rem;
-  background-color: #fff;
+  background: var(--panel);
 }
 
 .components-section {
@@ -301,32 +307,35 @@ async function importToDatabase() {
 .components-table-wrapper {
   max-height: 400px;
   overflow-y: auto;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  background: var(--panel);
 }
 
 .components-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+  color: var(--text);
 }
 
 .components-table th,
 .components-table td {
   padding: 0.75rem;
   text-align: left;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid #374151;
 }
 
 .components-table th {
-  background-color: #f8f9fa;
+  background: var(--bg-soft);
   font-weight: 600;
   position: sticky;
   top: 0;
+  color: var(--text);
 }
 
 .components-table tr:hover {
-  background-color: #f5f5f5;
+  background: rgba(55, 65, 81, 0.5);
 }
 
 .element-item {

@@ -87,16 +87,17 @@ function getNodeClass() {
   padding: 2px 0;
   cursor: pointer;
   word-wrap: break-word;
+  border-radius: 4px;
 }
 
 .node-content:hover {
-  background-color: #f0f0f0;
+  background: rgba(55, 65, 81, 0.5);
 }
 
 .expand-icon {
   width: 16px;
   margin-right: 4px;
-  color: #666;
+  color: var(--muted);
   font-size: 12px;
   flex-shrink: 0;
 }
@@ -111,52 +112,53 @@ function getNodeClass() {
   font-weight: 500;
   margin-right: 8px;
   word-break: break-word;
+  color: var(--text);
 }
 
 .node-data {
-  color: #666;
+  color: var(--muted);
   font-style: italic;
   word-break: break-word;
   flex: 1;
 }
 
-/* Node type styling */
+/* Node type styling - adapted for dark theme */
 .node-class {
-  color: #d73502;
+  color: #ef4444;
   font-weight: bold;
 }
 
 .node-family {
-  color: #0066cc;
+  color: #3b82f6;
   font-weight: 600;
 }
 
 .node-component {
-  color: #006600;
+  color: #10b981;
   font-weight: 600;
 }
 
 .node-element {
-  color: #cc6600;
+  color: #f59e0b;
 }
 
 .node-eal {
-  color: #9900cc;
+  color: #a855f7;
   font-weight: 600;
 }
 
 .node-text {
-  color: #333;
+  color: var(--text);
   font-weight: normal;
   font-size: 0.9rem;
 }
 
 .node-default {
-  color: #555;
+  color: var(--muted);
 }
 
 .children {
-  border-left: 1px dotted #ccc;
+  border-left: 1px dotted #374151;
   margin-left: 8px;
 }
 </style>
