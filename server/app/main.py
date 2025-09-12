@@ -23,15 +23,31 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="CCGenTool2 API", lifespan=lifespan)
 
+# CORS configuration: prefer regex if provided to allow any LAN IP on port 5173
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+origin_regex = os.getenv(
+    "CORS_ORIGIN_REGEX",
+    None,
+)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
+cors_kwargs = dict(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if origin_regex:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=origin_regex,
+        **cors_kwargs,
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        **cors_kwargs,
+    )
 
 
 @app.get("/health")

@@ -16,7 +16,9 @@ services:
       dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/appdb
-      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+      # Allow any http(s)://<ip-or-hostname> with optional port (for Vite on different ports)
+      CORS_ORIGIN_REGEX: '^https?://[a-zA-Z0-9_.-]+(?::\d+)?$'
     ports:
       - "8000:8000"
     depends_on:
