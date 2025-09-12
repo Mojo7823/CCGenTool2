@@ -98,36 +98,33 @@
       
       <div v-if="loading" class="loading">Loading...</div>
       
-      <table v-else class="table">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Class</th>
-            <th>Family</th>
-            <th>Component</th>
-            <th>Component Name</th>
-            <th>Element</th>
-            <th>Element Item</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in items" :key="item.id">
-            <td>{{ item.id }}</td>
-            <td>{{ item.class || item.class_field }}</td>
-            <td>{{ item.family }}</td>
-            <td>{{ item.component }}</td>
-            <td>{{ item.component_name }}</td>
-            <td>{{ item.element }}</td>
-            <td>{{ item.element_item }}</td>
-          </tr>
-          <tr v-if="items.length === 0">
-            <td colspan="7" style="text-align: center; color: #666;">
-              No data found in {{ selectedTable }} table.
-              {{ selectedTable !== 'components' ? 'Try importing XML data first.' : '' }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <div v-else class="data-table-wrapper">
+        <EasyDataTable
+          :headers="tableHeaders"
+          :items="items"
+          :rows-per-page="25"
+          :show-index="true"
+          search-field=""
+          search-value=""
+          alternating
+          buttons-pagination
+          :must-sort="false"
+          table-class-name="customize-table"
+          :loading="loading"
+        >
+          <template #item-element_item="{ item }">
+            <div class="element-item-cell">{{ item.element_item }}</div>
+          </template>
+          <template #item-component_name="{ item }">
+            <div class="component-name-cell">{{ item.component_name }}</div>
+          </template>
+          <template #empty-message>
+            <p>No data found in {{ selectedTable }} table.
+               {{ selectedTable !== 'components' ? 'Try importing XML data first.' : '' }}
+            </p>
+          </template>
+        </EasyDataTable>
+      </div>
     </div>
 
     <div v-else class="no-selection">
@@ -139,6 +136,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import api from '../services/api'
+import type { Header } from 'vue3-easy-data-table'
+import EasyDataTable from 'vue3-easy-data-table'
+import 'vue3-easy-data-table/dist/style.css'
 
 type Item = { 
   id: number, 
@@ -161,6 +161,17 @@ type FamilyTables = {
   assurance?: Table[]
   special?: Table[]
 }
+
+// DataTable headers
+const tableHeaders: Header[] = [
+  { text: 'ID', value: 'id', sortable: true, width: 80 },
+  { text: 'Class', value: 'class_display', sortable: true, width: 120 },
+  { text: 'Family', value: 'family', sortable: true, width: 120 },
+  { text: 'Component', value: 'component', sortable: true, width: 120 },
+  { text: 'Component Name', value: 'component_name', sortable: true, width: 300 },
+  { text: 'Element', value: 'element', sortable: true, width: 150 },
+  { text: 'Element Item', value: 'element_item', sortable: false, width: 400 }
+]
 
 const items = ref<Item[]>([])
 const q = ref('')
@@ -236,7 +247,11 @@ async function fetchItems(){
     } else {
       res = await api.get(`/families/${selectedTable.value}`, { params: { q: q.value || undefined } })
     }
-    items.value = res.data
+    // Process items to add class_display field
+    items.value = res.data.map((item: Item) => ({
+      ...item,
+      class_display: item.class || item.class_field || ''
+    }))
   } catch (error) {
     console.error('Error fetching items:', error)
     items.value = []
@@ -346,5 +361,41 @@ onMounted(async () => {
   text-align: center;
   padding: 40px;
   color: #666;
+}
+
+.data-table-wrapper {
+  border: 1px solid #374151;
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+  margin-top: 12px;
+}
+
+/* DataTable styling */
+.customize-table {
+  --easy-table-body-row-background-color: var(--panel);
+  --easy-table-body-row-hover-background-color: rgba(55, 65, 81, 0.5);
+  --easy-table-body-item-padding: 12px;
+  --easy-table-header-background-color: var(--bg-soft);
+  --easy-table-header-font-color: var(--text);
+  --easy-table-header-item-padding: 12px;
+  --easy-table-body-font-color: var(--text);
+  --easy-table-border: 1px solid #374151;
+  --easy-table-scrollbar-track-color: var(--bg-soft);
+  --easy-table-scrollbar-color: #6b7280;
+}
+
+.element-item-cell {
+  max-width: 400px;
+  word-wrap: break-word;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.component-name-cell {
+  max-width: 300px;
+  word-wrap: break-word;
+  font-size: 0.9rem;
+  line-height: 1.4;
 }
 </style>

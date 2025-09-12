@@ -296,6 +296,9 @@ class XmlParserService:
                         fe_item = sub_child.find("fe-assignmentitem")
                         if fe_item is not None and fe_item.text:
                             text += f' [assignment: {fe_item.text.strip()}]'
+                    # Add tail text processing - this was missing!
+                    if sub_child.tail and sub_child.tail.strip():
+                        text += ' ' + self._remove_newlines_and_extra_whitespaces(sub_child.tail.strip())
                 text = self._remove_newlines_and_extra_whitespaces(text)
                 data_node = XmlNode(text)
                 node.add_child(data_node)
