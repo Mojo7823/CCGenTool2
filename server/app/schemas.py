@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -34,3 +34,19 @@ class ComponentUpdate(BaseModel):
 
 class ComponentOut(ComponentBase):
     id: int
+
+
+# XML Parser Schemas
+class XmlParseResponse(BaseModel):
+    success: bool
+    message: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+    components: Optional[List[Dict[str, str]]] = None
+
+
+class XmlImportResponse(BaseModel):
+    success: bool
+    message: str
+    components_imported: int
+    components_failed: int
+    errors: Optional[List[str]] = None

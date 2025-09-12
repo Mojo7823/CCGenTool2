@@ -17,6 +17,9 @@
         </div>
       </div>
     </li>
+    <li>
+      <RouterLink to="/xml-parser" active-class="active">XML Parser</RouterLink>
+    </li>
   </ul>
 </template>
 

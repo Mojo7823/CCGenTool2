@@ -3,14 +3,15 @@ import time
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from .database import Base, engine, get_db
 from .models import Component
-from .schemas import ComponentCreate, ComponentOut, ComponentUpdate
+from .schemas import ComponentCreate, ComponentOut, ComponentUpdate, XmlParseResponse, XmlImportResponse
+from .xml_parser_service import XmlParserService
 
 
 @asynccontextmanager
@@ -143,3 +144,91 @@ def delete_component(item_id: int, db: Session = Depends(get_db)):
     db.delete(item)
     db.commit()
     return None
+
+
+# XML Parser endpoints
+@app.post("/xml/parse", response_model=XmlParseResponse)
+async def parse_xml_file(file: UploadFile = File(...)):
+    """Parse an uploaded XML file and return the structured data."""
+    if not file.filename or not file.filename.lower().endswith('.xml'):
+        raise HTTPException(status_code=400, detail="File must be an XML file")
+    
+    try:
+        content = await file.read()
+        xml_content = content.decode('utf-8')
+        
+        parser = XmlParserService()
+        result = parser.parse_xml_file(xml_content)
+        
+        return XmlParseResponse(**result)
+    
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File must be valid UTF-8 encoded XML")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error parsing XML: {str(e)}")
+
+
+@app.post("/xml/import", response_model=XmlImportResponse)
+async def import_xml_to_database(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Parse an XML file and import components to the database."""
+    if not file.filename or not file.filename.lower().endswith('.xml'):
+        raise HTTPException(status_code=400, detail="File must be an XML file")
+    
+    try:
+        content = await file.read()
+        xml_content = content.decode('utf-8')
+        
+        parser = XmlParserService()
+        result = parser.parse_xml_file(xml_content)
+        
+        if not result['success'] or not result['components']:
+            return XmlImportResponse(
+                success=False,
+                message="No components found in XML file",
+                components_imported=0,
+                components_failed=0
+            )
+        
+        components_imported = 0
+        components_failed = 0
+        errors = []
+        
+        for component_data in result['components']:
+            try:
+                # Only import if we have meaningful data
+                if component_data.get('class_name') or component_data.get('family') or component_data.get('component'):
+                    component = Component(
+                        class_name=component_data.get('class_name', ''),
+                        family=component_data.get('family'),
+                        component=component_data.get('component'),
+                        component_name=component_data.get('component_name'),
+                        element=component_data.get('element'),
+                        element_item=component_data.get('element_item')
+                    )
+                    db.add(component)
+                    components_imported += 1
+            except Exception as e:
+                components_failed += 1
+                errors.append(f"Failed to import component: {str(e)}")
+        
+        try:
+            db.commit()
+            return XmlImportResponse(
+                success=True,
+                message=f"Successfully imported {components_imported} components",
+                components_imported=components_imported,
+                components_failed=components_failed,
+                errors=errors if errors else None
+            )
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File must be valid UTF-8 encoded XML")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing XML: {str(e)}")
