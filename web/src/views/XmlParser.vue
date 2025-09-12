@@ -56,26 +56,33 @@
     <!-- Components Preview -->
     <div v-if="extractedComponents && extractedComponents.length > 0" class="components-section">
       <h3>Extracted Components ({{ extractedComponents.length }})</h3>
-      <div class="data-table-wrapper">
-        <EasyDataTable
-          :headers="tableHeaders"
-          :items="extractedComponents"
-          :rows-per-page="20"
-          :show-index="true"
-          search-field="component_name"
-          search-value=""
-          alternating
-          buttons-pagination
-          :must-sort="false"
-          table-class-name="customize-table"
-        >
-          <template #item-element_item="{ item }">
-            <div class="element-item-cell">{{ item.element_item }}</div>
-          </template>
-          <template #empty-message>
-            <p>No components found.</p>
-          </template>
-        </EasyDataTable>
+      
+      <!-- Simple table instead of DataTable for now -->
+      <div class="simple-table-wrapper">
+        <table class="simple-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Class</th>
+              <th>Family</th>
+              <th>Component</th>
+              <th>Component Name</th>
+              <th>Element</th>
+              <th>Element Item</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(component, index) in extractedComponents" :key="index">
+              <td>{{ component.id }}</td>
+              <td>{{ component.class }}</td>
+              <td>{{ component.family }}</td>
+              <td>{{ component.component }}</td>
+              <td>{{ component.component_name }}</td>
+              <td>{{ component.element }}</td>
+              <td class="element-item-cell">{{ component.element_item }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       
       <!-- Import Summary -->
@@ -402,5 +409,43 @@ async function importToDatabase() {
 .summary-item .value {
   font-weight: 600;
   color: var(--text);
+}
+
+/* Simple table styles */
+.simple-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  margin-top: 1rem;
+}
+
+.simple-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-secondary);
+}
+
+.simple-table th,
+.simple-table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #374151;
+  color: var(--text);
+}
+
+.simple-table th {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.simple-table tbody tr:hover {
+  background: var(--bg-tertiary);
+}
+
+.simple-table .element-item-cell {
+  max-width: 300px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 </style>
