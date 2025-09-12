@@ -1,5 +1,6 @@
 import os
 import time
+from contextlib import asynccontextmanager
 from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Query
@@ -12,7 +13,15 @@ from .models import Component
 from .schemas import ComponentCreate, ComponentOut, ComponentUpdate
 
 
-app = FastAPI(title="CCGenTool2 API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    Base.metadata.create_all(bind=engine)
+    yield
+    # Shutdown (if needed)
+
+
+app = FastAPI(title="CCGenTool2 API", lifespan=lifespan)
 
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 
@@ -23,11 +32,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-def on_startup():
-    Base.metadata.create_all(bind=engine)
 
 
 @app.get("/health")
