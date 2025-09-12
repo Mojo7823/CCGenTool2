@@ -1,10 +1,17 @@
 """
 XML Parser Service for Common Criteria XML files.
 Adapted from the original Qt-based xml_parser_model.py to work with web backend.
+Now includes multi-table database insertion based on component families.
 """
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Type
 from lxml import etree
 import re
+from sqlalchemy.orm import Session
+from .models import (
+    Component, ComponentFamilyBase, ElementListDb,
+    FauDb, FcoDb, FcsDb, FdpDb, FiaDb, FmtDb, FprDb, FptDb, FruDb, FtaDb, FtpDb,
+    AcoDb, AdvDb, AgdDb, AlcDb, ApeDb, AseDb, AteDb, AvaDb
+)
 
 
 class XmlNode:
@@ -36,6 +43,31 @@ class XmlParserService:
     
     def __init__(self):
         self.root_node: Optional[XmlNode] = None
+        # Define table mappings based on class IDs from the XML
+        self.functional_table_mappings = {
+            "fau": FauDb,  # Security audit
+            "fco": FcoDb,  # Communication
+            "fcs": FcsDb,  # Cryptographic support
+            "fdp": FdpDb,  # User data protection
+            "fia": FiaDb,  # Identification and authentication
+            "fmt": FmtDb,  # Security management
+            "fpr": FprDb,  # Privacy
+            "fpt": FptDb,  # Protection of the TSF
+            "fru": FruDb,  # Resource utilisation
+            "fta": FtaDb,  # TOE access
+            "ftp": FtpDb,  # Trusted path/channels
+        }
+        
+        self.assurance_table_mappings = {
+            "aco": AcoDb,  # Composition
+            "adv": AdvDb,  # Development
+            "agd": AgdDb,  # Guidance documents
+            "alc": AlcDb,  # Life-cycle support
+            "ape": ApeDb,  # Protection Profile evaluation
+            "ase": AseDb,  # Security Target evaluation
+            "ate": AteDb,  # Tests
+            "ava": AvaDb,  # Vulnerability assessment
+        }
     
     def parse_xml_file(self, xml_content: str) -> Dict[str, Any]:
         """
@@ -66,6 +98,123 @@ class XmlParserService:
             'data': self.root_node.to_dict() if self.root_node else None,
             'components': self._extract_components()
         }
+    
+    def import_to_database(self, xml_content: str, db: Session) -> Dict[str, Any]:
+        """
+        Parse XML and import components to appropriate database tables.
+        
+        Args:
+            xml_content: String content of the XML file
+            db: Database session
+            
+        Returns:
+            Dictionary containing import results
+        """
+        # Parse the XML first
+        parse_result = self.parse_xml_file(xml_content)
+        
+        if not parse_result['success'] or not parse_result['components']:
+            return {
+                'success': False,
+                'message': "No components found in XML file",
+                'components_imported': 0,
+                'components_failed': 0,
+                'tables_used': []
+            }
+        
+        components_imported = 0
+        components_failed = 0
+        errors = []
+        tables_used = set()
+        
+        # Process components and insert into appropriate tables
+        for component_data in parse_result['components']:
+            try:
+                success = self._insert_component_to_table(component_data, db)
+                if success:
+                    components_imported += 1
+                    # Track which table was used
+                    class_id = component_data.get('class_id', '')
+                    table_name = self._get_table_name_for_class_id(class_id)
+                    if table_name:
+                        tables_used.add(table_name)
+                else:
+                    components_failed += 1
+            except Exception as e:
+                components_failed += 1
+                errors.append(f"Failed to import component: {str(e)}")
+        
+        try:
+            db.commit()
+            return {
+                'success': True,
+                'message': f"Successfully imported {components_imported} components",
+                'components_imported': components_imported,
+                'components_failed': components_failed,
+                'errors': errors if errors else None,
+                'tables_used': list(tables_used)
+            }
+        except Exception as e:
+            db.rollback()
+            raise Exception(f"Database error: {str(e)}")
+    
+    def _insert_component_to_table(self, component_data: Dict[str, str], db: Session) -> bool:
+        """Insert component data into the appropriate table based on class."""
+        class_name = component_data.get('class_name', '')
+        class_id = component_data.get('class_id', '')
+        
+        if not class_name:
+            return False
+        
+        # Determine which table to use based on class_id
+        table_class = self._get_table_class_for_class_id(class_id)
+        
+        if not table_class:
+            # Fall back to general components table
+            component = Component(
+                class_name=component_data.get('class_name', ''),
+                family=component_data.get('family'),
+                component=component_data.get('component'),
+                component_name=component_data.get('component_name'),
+                element=component_data.get('element'),
+                element_item=component_data.get('element_item')
+            )
+            db.add(component)
+            return True
+        
+        # Insert into specific family table
+        component = table_class(
+            class_field=component_data.get('class_name', ''),
+            family=component_data.get('family'),
+            component=component_data.get('component'),
+            component_name=component_data.get('component_name'),
+            element=component_data.get('element'),
+            element_item=component_data.get('element_item')
+        )
+        db.add(component)
+        return True
+    
+    def _get_table_class_for_class_id(self, class_id: str) -> Optional[Type]:
+        """Get the appropriate table class for a given class ID."""
+        if not class_id:
+            return None
+            
+        # Check functional tables
+        if class_id in self.functional_table_mappings:
+            return self.functional_table_mappings[class_id]
+        
+        # Check assurance tables
+        if class_id in self.assurance_table_mappings:
+            return self.assurance_table_mappings[class_id]
+        
+        return None
+    
+    def _get_table_name_for_class_id(self, class_id: str) -> Optional[str]:
+        """Get the table name for a given class ID."""
+        table_class = self._get_table_class_for_class_id(class_id)
+        if table_class:
+            return table_class.__tablename__
+        return "components"
     
     def _create_node_from_element(self, parent_node: XmlNode, element) -> None:
         """Create a node from an XML element."""
@@ -216,6 +365,7 @@ class XmlParserService:
         # Extract component information based on the node structure
         component_data = {
             'class_name': '',
+            'class_id': '',  # Add class_id for table mapping
             'family': '',
             'component': '',
             'component_name': '',
@@ -232,6 +382,15 @@ class XmlParserService:
                 component_data['class_name'] = parts[0]
                 if len(parts) > 1:
                     component_data['component_name'] = parts[1]
+                
+                # Extract class ID from the node attributes if available
+                if hasattr(node, 'attributes') and 'id' in node.attributes:
+                    component_data['class_id'] = node.attributes['id']
+                elif 'id=' in class_info:
+                    # Extract id from the label if present
+                    id_match = re.search(r'id=([a-zA-Z]+)', class_info)
+                    if id_match:
+                        component_data['class_id'] = id_match.group(1)
         
         if len(current_path) >= 2:
             # Extract family information

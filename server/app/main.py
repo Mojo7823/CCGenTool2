@@ -9,8 +9,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from .database import Base, engine, get_db
-from .models import Component
-from .schemas import ComponentCreate, ComponentOut, ComponentUpdate, XmlParseResponse, XmlImportResponse
+from .models import (
+    Component, FauDb, FcoDb, FcsDb, FdpDb, FiaDb, FmtDb, FprDb, FptDb, FruDb, FtaDb, FtpDb,
+    AcoDb, AdvDb, AgdDb, AlcDb, ApeDb, AseDb, AteDb, AvaDb, ElementListDb
+)
+from .schemas import (
+    ComponentCreate, ComponentOut, ComponentUpdate, XmlParseResponse, XmlImportResponse,
+    ComponentFamilyOut, ElementListOut
+)
 from .xml_parser_service import XmlParserService
 
 
@@ -172,7 +178,7 @@ async def parse_xml_file(file: UploadFile = File(...)):
 
 @app.post("/xml/import", response_model=XmlImportResponse)
 async def import_xml_to_database(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Parse an XML file and import components to the database."""
+    """Parse an XML file and import components to the database using family-specific tables."""
     if not file.filename or not file.filename.lower().endswith('.xml'):
         raise HTTPException(status_code=400, detail="File must be an XML file")
     
@@ -181,50 +187,9 @@ async def import_xml_to_database(file: UploadFile = File(...), db: Session = Dep
         xml_content = content.decode('utf-8')
         
         parser = XmlParserService()
-        result = parser.parse_xml_file(xml_content)
+        result = parser.import_to_database(xml_content, db)
         
-        if not result['success'] or not result['components']:
-            return XmlImportResponse(
-                success=False,
-                message="No components found in XML file",
-                components_imported=0,
-                components_failed=0
-            )
-        
-        components_imported = 0
-        components_failed = 0
-        errors = []
-        
-        for component_data in result['components']:
-            try:
-                # Only import if we have meaningful data
-                if component_data.get('class_name') or component_data.get('family') or component_data.get('component'):
-                    component = Component(
-                        class_name=component_data.get('class_name', ''),
-                        family=component_data.get('family'),
-                        component=component_data.get('component'),
-                        component_name=component_data.get('component_name'),
-                        element=component_data.get('element'),
-                        element_item=component_data.get('element_item')
-                    )
-                    db.add(component)
-                    components_imported += 1
-            except Exception as e:
-                components_failed += 1
-                errors.append(f"Failed to import component: {str(e)}")
-        
-        try:
-            db.commit()
-            return XmlImportResponse(
-                success=True,
-                message=f"Successfully imported {components_imported} components",
-                components_imported=components_imported,
-                components_failed=components_failed,
-                errors=errors if errors else None
-            )
-        except Exception as e:
-            db.rollback()
-            raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        return XmlImportResponse(**result)
     
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="File must be valid UTF-8 encoded XML")
@@ -232,3 +197,112 @@ async def import_xml_to_database(file: UploadFile = File(...), db: Session = Dep
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing XML: {str(e)}")
+
+
+# Family Table Endpoints
+@app.get("/families")
+def list_family_tables():
+    """List all available family tables."""
+    tables = {
+        "functional": [
+            {"name": "fau_db", "description": "Security audit (FAU)"},
+            {"name": "fco_db", "description": "Communication (FCO)"},
+            {"name": "fcs_db", "description": "Cryptographic support (FCS)"},
+            {"name": "fdp_db", "description": "User data protection (FDP)"},
+            {"name": "fia_db", "description": "Identification and authentication (FIA)"},
+            {"name": "fmt_db", "description": "Security management (FMT)"},
+            {"name": "fpr_db", "description": "Privacy (FPR)"},
+            {"name": "fpt_db", "description": "Protection of the TSF (FPT)"},
+            {"name": "fru_db", "description": "Resource utilisation (FRU)"},
+            {"name": "fta_db", "description": "TOE access (FTA)"},
+            {"name": "ftp_db", "description": "Trusted path/channels (FTP)"},
+        ],
+        "assurance": [
+            {"name": "aco_db", "description": "Composition (ACO)"},
+            {"name": "adv_db", "description": "Development (ADV)"},
+            {"name": "agd_db", "description": "Guidance documents (AGD)"},
+            {"name": "alc_db", "description": "Life-cycle support (ALC)"},
+            {"name": "ape_db", "description": "Protection Profile evaluation (APE)"},
+            {"name": "ase_db", "description": "Security Target evaluation (ASE)"},
+            {"name": "ate_db", "description": "Tests (ATE)"},
+            {"name": "ava_db", "description": "Vulnerability assessment (AVA)"},
+        ],
+        "special": [
+            {"name": "element_list_db", "description": "Element list for colored XML elements"},
+        ]
+    }
+    return tables
+
+
+def get_family_table_model(table_name: str):
+    """Get the SQLAlchemy model for a family table."""
+    table_models = {
+        "fau_db": FauDb, "fco_db": FcoDb, "fcs_db": FcsDb, "fdp_db": FdpDb,
+        "fia_db": FiaDb, "fmt_db": FmtDb, "fpr_db": FprDb, "fpt_db": FptDb,
+        "fru_db": FruDb, "fta_db": FtaDb, "ftp_db": FtpDb,
+        "aco_db": AcoDb, "adv_db": AdvDb, "agd_db": AgdDb, "alc_db": AlcDb,
+        "ape_db": ApeDb, "ase_db": AseDb, "ate_db": AteDb, "ava_db": AvaDb,
+        "element_list_db": ElementListDb
+    }
+    return table_models.get(table_name)
+
+
+@app.get("/families/{table_name}", response_model=List[ComponentFamilyOut])
+def list_family_components(
+    table_name: str,
+    q: Optional[str] = Query(None, description="Search across select fields"),
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+):
+    """List components from a specific family table."""
+    model = get_family_table_model(table_name)
+    if not model:
+        raise HTTPException(status_code=404, detail="Table not found")
+    
+    query = db.query(model)
+    if q and hasattr(model, 'class_field'):
+        like = f"%{q}%"
+        query = query.filter(
+            (
+                (model.class_field.ilike(like))
+                | (model.family.ilike(like))
+                | (model.component.ilike(like))
+                | (model.component_name.ilike(like))
+                | (model.element.ilike(like))
+                | (model.element_item.ilike(like))
+            )
+        )
+    return query.offset(skip).limit(limit).all()
+
+
+@app.get("/element-lists", response_model=List[ElementListOut])
+def list_element_lists(
+    q: Optional[str] = Query(None, description="Search across select fields"),
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+):
+    """List elements from the element_list_db table."""
+    query = db.query(ElementListDb)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            (
+                (ElementListDb.element.ilike(like))
+                | (ElementListDb.element_index.ilike(like))
+                | (ElementListDb.item_list.ilike(like))
+            )
+        )
+    return query.offset(skip).limit(limit).all()
+
+
+@app.get("/families/{table_name}/count")
+def count_family_components(table_name: str, db: Session = Depends(get_db)):
+    """Get count of components in a family table."""
+    model = get_family_table_model(table_name)
+    if not model:
+        raise HTTPException(status_code=404, detail="Table not found")
+    
+    count = db.query(model).count()
+    return {"table": table_name, "count": count}
