@@ -1,0 +1,784 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE cc SYSTEM "cc.dtd">
+<cc version="CC:2022" revision="0.9">
+  
+  
+  
+  
+  
+  
+  <a-class name="Security Target (ST) evaluation" id="ase">
+    <ac-introduction>
+      <para>
+        Evaluating an ST is required to demonstrate that the ST is sound and internally
+        consistent, and, if the ST is based on a PP-Configuration, or one or more PPs or packages,
+        that the ST is a correct instantiation of the PP-Configuration, PPs, and packages. These
+        properties are necessary for the ST to be suitable for use as the basis for a TOE
+        evaluation.
+      </para>
+      <para>
+        Clause 9 should be used in conjunction with CC Part 1, Annexes B, C and D as these annexes
+        clarify the concepts here and provide many examples.
+      </para>
+    </ac-introduction>
+    <ma-introduction>
+      <para>
+        This clause describes the evaluation of an ST. The ST evaluation should be started prior
+        to any TOE evaluation sub-activities since the ST provides the basis and context to
+        perform these sub-activities. The evaluation methodology in this subclause is based on the
+        requirements on the ST as specified in CC Part 3 class <xref id="ase"/>.
+      </para>
+      <para>
+        This clause should be used in conjunction with CC Part 1, Annexes A, B and C, as these
+        Annexes clarify the concepts here and provide many examples.
+      </para>
+    </ma-introduction>
+    <ma-application-notes>
+      <subclause id="re-using-in-ase" title="Re-using the evaluation results of certified PPs">
+        <para>
+          While evaluating an ST that is based on one or more certified PPs, it may be possible to
+          re-use the fact that these PPs were certified. The potential for re-use of the result of a
+          certified PP is greater if the ST does not add threats, OSPs, assumptions, security
+          objectives and/or security requirements to those of the PP. If the ST contains much more
+          than the certified PP, re-use may not be useful at all.
+        </para>
+        <para>
+          The evaluator is allowed to re-use the PP evaluation results by doing certain analyses
+          only partially or not at all if these analyses or parts thereof were already done as part
+          of the PP evaluation. While doing this, the evaluator should assume that the analyses in
+          the PP were performed correctly.
+        </para>
+        <para>
+          An example would be where the PP contains a set of security requirements, and these were
+          determined to be internally consistent during the PP evaluation. If the ST uses the exact
+          same requirements, the consistency analysis does not have to be repeated during the ST
+          evaluation. If the ST adds one or more requirements, or performs operations on these
+          requirements, the analysis will have to be repeated. However, it may be possible to save
+          work in this consistency analysis by using the fact that the original requirements are
+          internally consistent. If the original requirements are internally consistent, the
+          evaluator only has to determine that:
+          <list>
+            <item>
+              the set of all new and/or changed requirements is internally consistent, and;
+            </item>
+            <item>
+              the set of all new and/or changed requirements is consistent with the original
+              requirements.
+            </item>
+          </list>
+        </para>
+        <para>
+          The evaluator notes in the ETR each case where analyses are not done or only partially
+          done for this reason.
+        </para>
+        <para>
+          The same re-use discussion applies to an ST claiming conformance to a certified
+          PP-Configuration.
+        </para>
+      </subclause>
+      <subclause id="composition-in-ase" title="Composition">
+        <para>
+          The composite-specific work units defined in <xref id="ase_comp"/> are intended to be
+          integrated as refinements to the evaluation activities of the <xref id="ase"/> class
+          listed in the following table. The other activities of the <xref id="ase"/> class do not
+          require composite-specific work units.
+        </para>
+        <table>
+          <title>
+            <xref id="ase_comp"/>
+          </title>
+          <tgroup cols="4">
+            <thead>
+              <row>
+                <entry>
+                  Assurance family
+                </entry>
+                <entry>
+                  Evaluation activity
+                </entry>
+                <entry>
+                  Evaluation work unit
+                </entry>
+                <entry>
+                  Composite-specific work unit
+                </entry>
+              </row>
+            </thead>
+            <tbody>
+              <row>
+                <entry>
+                  <xref id="ase_obj"/>
+                </entry>
+                <entry>
+                  <xref id="ase_obj.2.1e"/>
+                </entry>
+                <entry>
+                  <xref id="ase_obj.2-1"/>
+                </entry>
+                <entry>
+                  <xref id="ase_comp.1-5"/>
+                </entry>
+              </row>
+              <row>
+                <entry/>
+                <entry>
+                  <xref id="ase_obj.2.1e"/>
+                </entry>
+                <entry>
+                  <xref id="ase_obj.2-1"/>
+                </entry>
+                <entry>
+                  <xref id="ase_comp.1-6"/>
+                </entry>
+              </row>
+              <row>
+                <entry/>
+                <entry>
+                  <xref id="ase_obj.2.1e"/>
+                </entry>
+                <entry>
+                  <xref id="ase_obj.2-3"/>
+                </entry>
+                <entry>
+                  <xref id="ase_comp.1-6"/>
+                </entry>
+              </row>
+              <row>
+                <entry>
+                  <xref id="ase_req"/>
+                </entry>
+                <entry>
+                  <xref id="ase_req.1.1e"/>
+                </entry>
+                <entry>
+                  <xref id="ase_req.1-16"/>
+                </entry>
+                <entry>
+                  <xref id="ase_comp.1-1"/>
+                </entry>
+              </row>
+              <row>
+                <entry/>
+                <entry>
+                  <xref id="ase_req.2.1e"/>
+                </entry>
+                <entry>
+                  <xref id="ase_req.2-13"/>
+                </entry>
+                <entry>
+                  <xref id="ase_comp.1-1"/>
+                </entry>
+              </row>
+              <row>
+                <entry/>
+                <entry>
+                  <xref id="ase_req.1.1e"/>
+                </entry>
+                <entry>
+                  <xref id="ase_req.1-16"/>
+                </entry>
+                <entry>
+                  <xref id="ase_comp.1-2"/>
+                </entry>
+              </row>
+              <row>
+                <entry/>
+                <entry>
+                  <xref id="ase_req.2.1e"/>
+                </entry>
+                <entry>
+                  <xref id="ase_req.2-13"/>
+                </entry>
+                <entry>
+                  <xref id="ase_comp.1-2"/>
+                </entry>
+              </row>
+              <row>
+                <entry/>
+                <entry>
+                  <xref id="ase_req.2.1e"/>
+                </entry>
+                <entry>
+                  <xref id="ase_req.2-12"/>
+                </entry>
+                <entry>
+                  <xref id="ase_comp.1-3"/>
+                </entry>
+              </row>
+              <row>
+                <entry/>
+                <entry>
+                  <xref id="ase_req.2.1e"/>
+                </entry>
+                <entry>
+                  <xref id="ase_req.2-4"/>
+                </entry>
+                <entry>
+                  <xref id="ase_comp.1-4"/>
+                </entry>
+              </row>
+            </tbody>
+          </tgroup>
+        </table>
+      </subclause>
+    </ma-application-notes>
+    
+    
+    
+    <a-family name="ST introduction" id="ase_int">
+      <af-objectives>
+        <para>
+          The objective of this family is to describe the TOE in a narrative way on three levels of
+          abstraction: TOE reference, TOE overview and TOE description.
+        </para>
+        <para>
+          Evaluation of the ST introduction is required to demonstrate that the ST and the TOE are
+          correctly identified, that the TOE is correctly described at three levels of abstraction
+          and that these three descriptions are consistent with each other.
+        </para>
+      </af-objectives>
+      <a-component name="ST introduction" id="ase_int.1">
+        <msa-objectives>
+          <para>
+            The objective of this sub-activity is to determine whether the ST and the TOE are
+            correctly identified, whether the TOE is correctly described in a narrative way at three
+            levels of abstraction (TOE reference, TOE overview and TOE description), and whether these
+            three descriptions are consistent with each other.
+          </para>
+        </msa-objectives>
+        <msa-input>
+          <para>
+            <list>
+              <item>
+                the ST.
+              </item>
+            </list>
+          </para>
+        </msa-input>
+        <ae-developer id="ase_int.1.1d">
+          The developer shall provide an ST introduction.
+        </ae-developer>
+        <ae-content id="ase_int.1.1c">
+          The ST introduction shall contain an ST reference, a TOE reference, a TOE overview and a
+          TOE description.
+        </ae-content>
+        <ae-content id="ase_int.1.2c">
+          The ST reference shall uniquely identify the ST.
+        </ae-content>
+        <ae-content id="ase_int.1.3c">
+          The TOE reference shall uniquely identify the TOE.
+        </ae-content>
+        <ae-content id="ase_int.1.4c">
+          The TOE overview shall summarize the usage and major security features of the TOE.
+        </ae-content>
+        <ae-content id="ase_int.1.5c">
+          The TOE overview shall identify the TOE type.
+        </ae-content>
+        <ae-content id="ase_int.1.6c">
+          The TOE overview shall identify any non-TOE hardware/software/firmware required by the
+          TOE.
+        </ae-content>
+        <ae-content id="ase_int.1.7c">
+          For a multi-assurance ST, the TOE overview shall describe the TSF organization in terms of
+          the sub-TSFs defined in the PP-Configuration the ST claims conformance to.
+        </ae-content>
+        <ae-content id="ase_int.1.8c">
+          The TOE description shall describe the physical scope of the TOE.
+        </ae-content>
+        <ae-content id="ase_int.1.9c">
+          The TOE description shall describe the logical scope of the TOE.
+        </ae-content>
+        <ae-evaluator id="ase_int.1.1e">
+          The evaluator shall confirm that the information provided meets all requirements for
+          content and presentation of evidence.
+          <m-workunit id="ase_int.1-1">
+            <ae-dc-element id="ase_int.1.1c"/>
+            <para>
+              The evaluator shall check that the ST introduction contains an ST reference, a TOE
+              reference, a TOE overview and a TOE description.
+            </para>
+          </m-workunit>
+          <m-workunit id="ase_int.1-2">
+            <ae-dc-element id="ase_int.1.2c"/>
+            <para>
+              The evaluator shall examine the ST reference to determine that it uniquely identifies the
+              ST.
+            </para>
+            <para>
+              The evaluator determines that the ST reference identifies the ST itself, so that it may be
+              easily distinguished from other STs, and that it also uniquely identifies each version of
+              the ST, e.g. by including a version number and/or a date of publication.
+            </para>
+            <para>
+              In evaluations where a CM system is provided, the evaluator may validate the uniqueness of
+              the reference by checking the configuration list. In the other cases, the ST should have
+              some referencing system that is capable of supporting unique references (e.g. use of
+              numbers, letters or dates).
+            </para>
+          </m-workunit>
+          <m-workunit id="ase_int.1-3">
+            <ae-dc-element id="ase_int.1.3c"/>
+            <para>
+              The evaluator shall examine the TOE reference to determine that it uniquely identifies the
+              TOE.
+            </para>
+            <para>
+              The evaluator determines that the TOE reference uniquely identifies the TOE, so that it is
+              clear to which TOE the ST refers, and that it also identifies the version of the TOE, e.g.
+              by including a version/release/build number, or a date of release.
+            </para>
+            <para>
+              In the end of the evaluation, the evaluator shall check the TOE reference, and any unique
+              identifiers associated with the TOE physical components are consistent with the
+              identifier(s) assigned to the TOE evaluated in work units related to <xref id="alc_cmc"/>.x.1C and the configuration list evaluated in work units related to <xref id="alc_cms"/>.x.2C.
+            </para>
+          </m-workunit>
+          <m-workunit id="ase_int.1-4">
+            <para>
+              The evaluator shall examine the TOE reference to determine that it is not misleading.
+            </para>
+            <para>
+              If the TOE is related to one or more well-known products, it is allowed to reflect this in
+              the TOE reference. However, this should not be used to mislead consumers and it must be
+              made clear which part of the product has been evaluated.
+            </para>
+            <para>
+              When a TOE needs some required non-TOE hardware/software/firmware to run properly, the TOE
+              reference may include the name of the non-TOE hardware/software/firmware used by the TOE,
+              however it must be made clear that the non-TOE hardware/software/firmware has not been
+              evaluated.
+            </para>
+          </m-workunit>
+          <m-workunit id="ase_int.1-5">
+            <ae-dc-element id="ase_int.1.4c"/>
+            <para>
+              The evaluator shall examine the TOE overview to determine that it describes the usage and
+              major security features of the TOE.
+            </para>
+            <para>
+              The TOE overview may describe security features that are provided by the product, and/or
+              those that users may expect in that product type, but it must clearly distinguish those
+              features that are evaluated and those that are not evaluated.
+            </para>
+            <para>
+              The TOE overview shall be consistent with information provided in other sections of the
+              Security Target such as the TOE description, the security objectives, the security
+              functional requirements, and the TOE summary specification. In addition to ensuring the
+              evaluated security features are consistently described throughout the ST, this means that
+              any security feature that is not evaluated is only discussed within the ST introduction,
+              or else is explicitly identified as not evaluated in each other place where it is
+              mentioned (failure to make this identification means that this work unit is assigned a
+              fail verdict).
+            </para>
+            <para>
+              The TOE overview in an ST for a composed TOE should describe the usage and major security
+              feature of the composed TOE, rather than those of the individual component TOEs.
+            </para>
+            <para>
+              The evaluator determines that the overview is clear enough for consumers, and sufficient
+              to give them a general understanding of the intended usage and major security features of
+              the TOE.
+            </para>
+          </m-workunit>
+          <m-workunit id="ase_int.1-6">
+            <ae-dc-element id="ase_int.1.5c"/>
+            <para>
+              The evaluator shall check that the TOE overview identifies the TOE type.
+            </para>
+          </m-workunit>
+          <m-workunit id="ase_int.1-7">
+            <para>
+              The evaluator shall examine the TOE overview to determine that the TOE type is not
+              misleading.
+            </para>
+            <para>
+              There are situations where the general consumer would expect certain functionality of the
+              TOE because of its TOE type. If this functionality is absent in the TOE, the evaluator
+              determines that the TOE overview adequately discusses this absence.
+            </para>
+            <para>
+              There are also TOEs where the general consumer would expect that the TOE should be able to
+              operate in a certain operational environment because of its TOE type. If the TOE is unable
+              to operate in such an operational environment, the evaluator determines that the TOE
+              overview adequately discusses this.
+            </para>
+          </m-workunit>
+          <m-workunit id="ase_int.1-8">
+            <ae-dc-element id="ase_int.1.6c"/>
+            <para>
+              The evaluator shall examine the TOE overview to determine that it identifies any non-TOE
+              hardware/software/firmware required by the TOE.
+            </para>
+            <para>
+              While some TOEs are able to run stand-alone, other TOEs (notably software TOEs) need
+              additional hardware, software or firmware to operate. If the TOE does not require any
+              hardware, software or firmware, this work unit is not applicable and therefore considered
+              to be satisfied.
+            </para>
+            <para>
+              The evaluator determines that the TOE overview identifies any additional hardware,
+              software and firmware needed by the TOE to operate. This identification does not have to
+              be exhaustive, but detailed enough for potential consumers of the TOE to determine whether
+              their current hardware, software and firmware support use of the TOE, and, if this is not
+              the case, which additional hardware, software and/or firmware is needed.
+            </para>
+          </m-workunit>
+          <m-workunit id="ase_int.1-9">
+            <ae-dc-element id="ase_int.1.7c"/>
+            <para>
+              For a multi-assurance ST, the evaluator shall examine the TOE overview to determine that
+              it describes the TSF organization in terms of the sub-TSFs defined in the PP-Configuration
+              to which the ST claims conformance. The TSF organization is possibly completed with
+              details of the actual TOE.
+            </para>
+          </m-workunit>
+          <m-workunit id="ase_int.1-10">
+            <ae-dc-element id="ase_int.1.8c"/>
+            <para>
+              The evaluator shall examine the TOE description to determine that it describes the
+              physical scope of the TOE.
+            </para>
+            <para>
+              The evaluator determines that the TOE description lists the hardware, firmware, software
+              and guidance parts that constitute the TOE and describes them at a level of detail that is
+              sufficient to give the reader a general understanding of those parts.
+            </para>
+            <para>
+              As a minimum, the TOE description will cover the following elements:
+              <list>
+                <item>
+                  each separately delivered part of the TOE, which will be identified by its unique
+                  identifier and the current format (binary, wafer, inlay, pdf, docx, chm, etc.);
+                </item>
+                <item>
+                  the delivery method used by the developer to make available each part to the TOE consumer
+                  (web site download, courier delivery, etc.).
+                </item>
+              </list>
+            </para>
+            <para>
+              The physical description will also include some clear statements about the evaluated TOE
+              configuration. In the case where a product can have multiple physical components, and
+              therefore multiple configurations, the evaluated configurations must be briefly described
+              and identified.
+            </para>
+            <para>
+              The evaluator also determines that there is no possible misunderstanding as to whether any
+              hardware, firmware, software or guidance part is part of the TOE or not.
+            </para>
+          </m-workunit>
+          <m-workunit id="ase_int.1-11">
+            <ae-dc-element id="ase_int.1.9c"/>
+            <para>
+              The evaluator shall examine the TOE description to determine that it describes the logical
+              scope of the TOE.
+            </para>
+            <para>
+              The evaluator determines that the TOE description discusses the logical security features
+              offered by the TOE at a level of detail that is sufficient to give the reader a general
+              understanding of those features.
+            </para>
+            <para>
+              The evaluator also determines that there is no possible misunderstanding as to whether any
+              logical security feature is offered by the TOE or not.
+            </para>
+            <para>
+              An ST for a composed TOE may refer out to the description of the logical scope of the
+              component TOEs, provided in the component TOE STs to provide the majority of this
+              description for the composed TOE. However, the evaluator determines that the composed TOE
+              ST clearly discusses which features of the individual components are not within the
+              composed TOE, and therefore not a feature of the composed TOE.
+            </para>
+          </m-workunit>
+        </ae-evaluator>
+        <ae-evaluator id="ase_int.1.2e">
+          The evaluator shall confirm that the TOE reference, the TOE overview, and the TOE
+          description are consistent with each other.
+          <m-workunit id="ase_int.1-12">
+            <para>
+              The evaluator shall examine the TOE reference, TOE overview and TOE description to
+              determine that they are consistent with each other.
+            </para>
+          </m-workunit>
+        </ae-evaluator>
+      </a-component>
+    </a-family>
+    
+    
+    
+    
+  </a-class>
+  
+  
+  
+  
+  
+  
+  
+  
+  <f-class name="Privacy" id="fpr">
+    <fc-introduction>
+      <para>
+        This class contains privacy requirements. These requirements provide a user protection
+        against discovery and misuse of identity by other users.
+      </para>
+    </fc-introduction>
+    <fc-informative-notes>
+      <para>
+        This class describes the requirements that can be levied to satisfy the users' privacy
+        needs, while still allowing the system flexibility as far as possible to maintain
+        sufficient control over the operation of the system.
+      </para>
+      <para>
+        In the components of this class there is flexibility as to whether or not authorized users
+        are covered by the required security functionality.
+      </para>
+      <para type="example">
+        A PP, PP-Module, functional package or ST author can consider it appropriate not to
+        require protection of the privacy of users against a suitably authorized user.
+      </para>
+      <para>
+        This class, together with other classes (such as those concerned with audit, access
+        control, trusted path, and non-repudiation) provides the flexibility to specify the
+        desired privacy behaviour. On the other hand, the requirements in this class can impose
+        limitations on the use of the components of other classes, such as <xref id="fia"/> or
+        <xref id="fau"/>.
+      </para>
+      <para type="example">
+        If authorized users are not allowed to see the user identity (perhaps because of Anonymity
+        or Pseudonymity), it will obviously not be possible to hold individual users accountable
+        for any security relevant actions they perform that are covered by the privacy
+        requirements. However, it can still be possible to include audit requirements in a PP,
+        PP-Module, functional package or ST, where the fact that a particular security relevant
+        event has occurred is more important than knowing who was responsible for it.
+      </para>
+      <para>
+        Additional information is provided in the application notes for class <xref id="fau"/>,
+        where it is explained that the definition of "identity" in the context of auditing can
+        also be an alias or other information that can identify a user.
+      </para>
+      <para>
+        This class describes four families: Anonymity, Pseudonymity, Unlinkability and
+        Unobservability. Anonymity, Pseudonymity and Unlinkability have a complex
+        interrelationship. When choosing a family, the choice should depend on the threats
+        identified. For some types of privacy threats, pseudonymity will be more appropriate than
+        anonymity.
+      </para>
+      <para type="example">
+        If there is a requirement for auditing.
+      </para>
+      <para type="example">
+        In addition, some types of privacy threats are best countered by a combination of
+        components from several families.
+      </para>
+      <para>
+        All families assume that a user does not explicitly perform an action that discloses the
+        user's own identity.
+      </para>
+      <para type="example">
+        The TSF is not expected to screen the user name in electronic messages or databases.
+      </para>
+      <para>
+        All families in this class have components thatscoped through operations. These operations
+        allow the author of a PP, PP-Module, functional package or ST to state the cooperating
+        users/subjects to which the TSF must be resistant.
+      </para>
+      <para type="example">
+        An instantiation of anonymity can be, "The TSF ensure that the users and/or subjects are
+        unable to determine the user identity bound to the teleconsulting application".
+      </para>
+      <para>
+        It is noted that the TSF should not only provide this protection against individual users,
+        but also against users cooperating to obtain the information.
+      </para>
+      <para type="note">
+        The reader's attention is drawn to ISO/IEC TS 19608, which is based on CC. ISO/IEC TS
+        19608:
+        <list type="itemized">
+          <item>
+            selecting and specifying SFRs from CC Part 2 to protect Personally Identifiable
+            Information (PII);
+          </item>
+          <item>
+            the procedure to define both privacy and SFRs in a coordinated manner;
+          </item>
+          <item>
+            developing privacy functional requirements as extended components based on the privacy
+            principles defined in ISO/IEC 29100 through the paradigm described in CC Part 2.
+          </item>
+        </list>
+      </para>
+    </fc-informative-notes>
+    <f-family name="Anonymity" id="fpr_ano">
+      <ff-behaviour>
+        <para>
+          This family ensures that a user can use a resource or service without disclosing the
+          user's identity. The requirements for anonymity provide protection of the user identity.
+          Anonymity is not intended to protect the subject identity.
+        </para>
+      </ff-behaviour>
+      <ff-application-notes>
+        <para>
+          Anonymity ensures that a subject may use a resource or service without disclosing its user
+          identity.
+        </para>
+        <para>
+          The intention of this family is to specify that a user or subject can take action without
+          releasing its user identity to others such as users, subjects, or objects. The family
+          provides the author of a PP, PP-Module, functional package or ST with a means to identify
+          the set of users that cannot see the identity of someone performing certain actions.
+        </para>
+        <para>
+          Therefore. if a subject, using anonymity, performs an action, another subject will not be
+          able to determine either the identity or even a reference to the identity of the user
+          employing the subject. The focus of the anonymity is on the protection of the user's
+          identity, not on the protection of the subject identity; hence, the identity of the
+          subject is not protected from disclosure.
+        </para>
+        <para>
+          Although the identity of the subject is not released to other subjects or users, the TSF
+          is not explicitly prohibited from obtaining the users identity. In case the TSF is not
+          allowed to know the identity of the user, <xref id="fpr_ano.2"/> can be invoked. In that
+          case, the TSF should not request the user information.
+        </para>
+        <para>
+          The interpretation of "determine" should be taken in the broadest sense of the word.
+        </para>
+        <para>
+          The Components leveling and description distinguishes between the users and an authorized
+          user. An authorized user is often excluded from the component, and therefore allowed to
+          retrieve a user's identity. However, there is no specific requirement that an authorized
+          user be able to have the capability to determine the user's identity. For ultimate
+          privacy, the components would be used to say that no user or authorized user can see the
+          identity of anyone performing any action.
+        </para>
+        <para>
+          Although some systems will provide anonymity for all services that are provided, other
+          systems provide anonymity for certain subjects/operations. To provide this flexibility, an
+          operation is included where the scope of the requirement is defined. If the author of a
+          PP, PP-Module, functional package or ST wants to address all subjects/operations, the
+          words "all subjects and all operations" can be provided.
+        </para>
+        <para>
+          Possible applications include the ability to make enquiries of a confidential nature to
+          public databases, respond to electronic polls, or make anonymous payments or donations.
+        </para>
+        <para type="example">
+          Potential hostile users or subjects include providers, system operators, communication
+          partners and users, who smuggle malicious parts (including malware) into systems. All of
+          these users can investigate usage patterns (such as which users used which services) and
+          misuse this information.
+        </para>
+      </ff-application-notes>
+      <f-component name="Anonymity" id="fpr_ano.1">
+        <fco-rationale>
+          <para>
+            This component ensures that the identity of a user is protected from disclosure. There may
+            be instances, however, that a given authorized user can determine who performed certain
+            actions. This component gives the flexibility to capture either a limited or total privacy
+            policy.
+          </para>
+        </fco-rationale>
+        <fco-levelling>
+          <para>
+            <xref id="fpr_ano.1"/> requires that other users or subjects are unable to determine the
+            identity of a user bound to a subject or operation.
+          </para>
+        </fco-levelling>
+        <fco-audit level="minimal">
+          The invocation of the anonymity mechanism
+        </fco-audit>
+        <f-element id="fpr_ano.1.1">
+          The TSF shall ensure that
+          <assignment>
+            <assignmentitem>
+              set of users and/or subjects
+            </assignmentitem>
+            <assignmentnotes>
+              <para>
+                the author of a PP, PP-Module, functional package or ST should specify the set of users
+                and/or subjects against which the TSF provides protection. For example, even if the author
+                of a PP, PP-Module, functional package or ST specifies a single user or subject role, the
+                TSF must not only provide protection against each individual user or subject but also
+                protect with respect to cooperating users and/or subjects.
+              </para>
+            </assignmentnotes>
+          </assignment>
+          are unable to determine the real user name bound to
+          <assignment>
+            <assignmentitem>
+              list of subjects and/or operations and/or objects
+            </assignmentitem>
+          </assignment>
+          .
+        </f-element>
+      </f-component>
+      <f-component name="Anonymity without soliciting information" id="fpr_ano.2">
+        <fco-hierarchical fcomponent="fpr_ano.1"/>
+        <fco-rationale>
+          <para>
+            This component is used to ensure that the TSF is not allowed to know the identity of the
+            user.
+          </para>
+        </fco-rationale>
+        <fco-levelling>
+          <para>
+            <xref id="fpr_ano.2"/> enhances the requirements of <xref id="fpr_ano.1"/> by ensuring
+            that the TSF does not ask for the user identity.
+          </para>
+        </fco-levelling>
+        <fco-audit equal="fpr_ano.1"/>
+        <f-element id="fpr_ano.2.1">
+          The TSF shall ensure that
+          <assignment>
+            <assignmentitem>
+              set of users and/or subjects
+            </assignmentitem>
+            <assignmentnotes>
+              <para>
+                the author of a PP, PP-Module, functional package or ST should specify the set of users
+                and/or subjects against which the TSF provides protection.
+              </para>
+            </assignmentnotes>
+          </assignment>
+          are unable to determine the real user name bound to
+          <assignment>
+            <assignmentitem>
+              list of subjects and/or operations and/or objects
+            </assignmentitem>
+          </assignment>
+          .
+        </f-element>
+        <f-element id="fpr_ano.2.2">
+          The TSF shall provide
+          <assignment>
+            <assignmentitem>
+              list of services
+            </assignmentitem>
+            <assignmentnotes>
+              <para>
+                the author of a PP, PP-Module, functional package or ST should identify the list of
+                services which are subject to the anonymity requirement, for example, "the accessing of
+                job descriptions".
+              </para>
+            </assignmentnotes>
+          </assignment>
+          to
+          <assignment>
+            <assignmentitem>
+              list of subjects
+            </assignmentitem>
+            <assignmentnotes>
+              <para>
+                the author of a PP, PP-Module, functional package or ST should identify the list of
+                subjects from which the real user name of the subject should be protected when the
+                specified services are provided.
+              </para>
+            </assignmentnotes>
+          </assignment>
+          without soliciting any reference to the real user name.
+        </f-element>
+      </f-component>
+    </f-family>
+  </f-class>
+</cc>
