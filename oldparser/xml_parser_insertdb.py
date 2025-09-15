@@ -84,7 +84,84 @@ def insert_to_db_combined(db_filename,xml_model):
             },
     ]
 
+
+    data_element_list_db = [
+        #FAU GEN.1.1 (3)
+        {
+            "item_list": "f-class - Security audit - fau>f-family - Security audit data generation - fau_gen>f-component - fau_gen.1>f-element - fau_gen.1.1",
+            "order": 1
+        },
+        {
+            "item_list": "f-class - Security audit - fau>f-family - Security audit data generation - fau_gen>f-component - fau_gen.1>f-element - fau_gen.1.1",
+            "order": 2
+        },
+
+        {
+            "item_list": "f-class - Security audit - fau>f-family - Security audit data generation - fau_gen>f-component - fau_gen.1>f-element - fau_gen.1.1",
+            "order": 3
+        },
+        #FAU GEN.1.2 (2)
+        {
+            "item_list": "f-class - Security audit - fau>f-family - Security audit data generation - fau_gen>f-component - fau_gen.1>f-element - fau_gen.1.2",
+            "order": 1
+        },
+        {
+            "item_list": "f-class - Security audit - fau>f-family - Security audit data generation - fau_gen>f-component - fau_gen.1>f-element - fau_gen.1.2",
+            "order": 2
+        },
+        #FAU SAA 1.2 (2)
+        {
+            "item_list": "f-class - Security audit - fau>f-family - Security audit analysis - fau_saa>f-component - fau_saa.1>f-element - fau_saa.1.2",
+            "order": 1
+        },
+        {
+            "item_list": "f-class - Security audit - fau>f-family - Security audit analysis - fau_saa>f-component - fau_saa.1>f-element - fau_saa.1.2",
+            "order": 2
+        },
+        #FAU SEL 1.1 (2)
+        {
+            "item_list": "f-class - Security audit - fau>f-family - Security audit event selection - fau_sel>f-component - fau_sel.1>f-element - fau_sel.1.1",
+            "order": 1
+        },
+        {
+            "item_list": "f-class - Security audit - fau>f-family - Security audit event selection - fau_sel>f-component - fau_sel.1>f-element - fau_sel.1.1",
+            "order": 2
+        },
+        #fdp_iff.2.6(3)
+        {
+            "item_list": "f-class - User data protection - fdp>f-family - Information flow control functions - fdp_iff>f-component - fdp_iff.2>f-element - fdp_iff.2.6",
+            "order": 1
+        },
+        {
+            "item_list": "f-class - User data protection - fdp>f-family - Information flow control functions - fdp_iff>f-component - fdp_iff.2>f-element - fdp_iff.2.6",
+            "order": 2
+        },        
+        {
+            "item_list": "f-class - User data protection - fdp>f-family - Information flow control functions - fdp_iff>f-component - fdp_iff.2>f-element - fdp_iff.2.6",
+            "order": 3
+        },
+        #fta_ssl.1.1 (2)
+        {
+            "item_list": "f-class - TOE access - fta>f-family - Session locking and termination - fta_ssl>f-component - fta_ssl.1>f-element - fta_ssl.1.1",
+            "order": 1
+        },
+        {
+            "item_list": "f-class - TOE access - fta>f-family - Session locking and termination - fta_ssl>f-component - fta_ssl.1>f-element - fta_ssl.1.1",
+            "order": 2
+        },
+        #fta_ssl.2.1 (2)
+        {
+            "item_list": "f-class - TOE access - fta>f-family - Session locking and termination - fta_ssl>f-component - fta_ssl.2>f-element - fta_ssl.2.1",
+            "order": 1
+        },
+        {
+            "item_list": "f-class - TOE access - fta>f-family - Session locking and termination - fta_ssl>f-component - fta_ssl.2>f-element - fta_ssl.2.1",
+            "order": 2
+        },
+    ]
+
     replace_all = False
+
 
     # Process data for combined_db
     for row in data_combined_db:
