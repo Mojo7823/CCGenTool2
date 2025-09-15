@@ -10,6 +10,7 @@
         <div class="table-actions">
           <button class="btn primary" @click="showAddModal = true">Add SFR</button>
           <button class="btn danger" @click="removeSFR" :disabled="!selectedSfrId">Remove SFR</button>
+          <button class="btn warning" @click="clearSessionData" :disabled="sfrList.length === 0" title="Clear all SFR data">Clear Data</button>
         </div>
       </div>
       
@@ -64,11 +65,24 @@
       <div class="modal-content" @click.stop>
         <h3>Create New SFR</h3>
         
+        <!-- Search functionality -->
+        <div class="form-group">
+          <label for="sfrSearch">Search SFR:</label>
+          <input 
+            id="sfrSearch" 
+            v-model="searchQuery" 
+            @input="onSearchInput"
+            type="text" 
+            class="input search-input" 
+            placeholder="Search by SFR Class or Components..."
+          />
+        </div>
+
         <div class="form-group">
           <label for="sfrClass">SFR Class:</label>
           <select id="sfrClass" v-model="selectedClass" @change="onClassChange" class="input">
             <option value="">Please Select a Class</option>
-            <option v-for="cls in sfrClasses" :key="cls.name" :value="cls.name">
+            <option v-for="cls in filteredSfrClasses" :key="cls.name" :value="cls.name">
               {{ cls.name.replace('_db', '') }} - {{ cls.description.replace(/\(.*?\)/, '').trim() }}
             </option>
           </select>
@@ -78,7 +92,7 @@
           <label for="sfrComponents">SFR Components:</label>
           <select id="sfrComponents" v-model="selectedComponent" @change="onComponentChange" class="input" :disabled="!selectedClass">
             <option value="">{{ selectedClass ? 'Please Choose SFR' : 'Please select SFR Class First' }}</option>
-            <option v-for="component in uniqueComponents" :key="component.id" :value="component.component">
+            <option v-for="component in filteredUniqueComponents" :key="component.id" :value="component.component">
               {{ component.component }} - {{ component.component_name }}
             </option>
           </select>
@@ -120,8 +134,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import api from '../services/api'
+import { sessionService } from '../services/sessionService'
 
 // Data
 const showAddModal = ref(false)
@@ -134,6 +149,11 @@ const uniqueComponents = ref([])
 const previewEditor = ref(null)
 const showColorPicker = ref(false)
 
+// Search functionality
+const searchQuery = ref('')
+const filteredSfrClasses = ref([])
+const filteredUniqueComponents = ref([])
+
 // New data for SFR list and table functionality
 const sfrList = ref([])
 const selectedSfrId = ref(null)
@@ -141,6 +161,9 @@ const selectedSfrPreview = ref('')
 const previewSection = ref(null)
 const isResizing = ref(false)
 const nextSfrId = ref(1)
+
+// Session management
+const userToken = ref(sessionService.getUserToken())
 
 // Predefined template for SFR preview
 const getSfrTemplate = () => {
@@ -164,10 +187,41 @@ const closeModal = () => {
   components.value = []
   uniqueComponents.value = []
   showColorPicker.value = false
+  searchQuery.value = ''
+  filteredSfrClasses.value = []
+  filteredUniqueComponents.value = []
   
   // Clear the editor content
   if (previewEditor.value) {
     previewEditor.value.innerHTML = ''
+  }
+}
+
+const onSearchInput = () => {
+  filterSfrData()
+}
+
+const filterSfrData = () => {
+  const query = searchQuery.value.toLowerCase().trim()
+  
+  if (!query) {
+    // If search is empty, return all data
+    filteredSfrClasses.value = [...sfrClasses.value]
+    filteredUniqueComponents.value = [...uniqueComponents.value]
+  } else {
+    // Filter SFR Classes by name and description
+    filteredSfrClasses.value = sfrClasses.value.filter(cls => {
+      const className = cls.name.replace('_db', '').toLowerCase()
+      const classDescription = cls.description.toLowerCase()
+      return className.includes(query) || classDescription.includes(query)
+    })
+    
+    // Filter SFR Components by component name and component_name
+    filteredUniqueComponents.value = uniqueComponents.value.filter(comp => {
+      const componentName = comp.component.toLowerCase()
+      const componentDesc = comp.component_name.toLowerCase()
+      return componentName.includes(query) || componentDesc.includes(query)
+    })
   }
 }
 
@@ -203,6 +257,9 @@ const onClassChange = async () => {
     
     // Store unique components for dropdown display
     uniqueComponents.value = Array.from(uniqueComponentsMap.values())
+    
+    // Apply current search filter to components
+    filterSfrData()
   } catch (error) {
     console.error('Error fetching components:', error)
   }
@@ -302,6 +359,9 @@ const finalizeSFR = async () => {
     // Update preview to show all SFRs
     updatePreviewForAllSfrs()
     
+    // Save to session
+    saveSessionData()
+    
     // Close modal
     closeModal()
     
@@ -316,6 +376,7 @@ const finalizeSFR = async () => {
 const selectSfr = (sfrId) => {
   selectedSfrId.value = sfrId
   updatePreviewForAllSfrs()
+  saveSessionData()
 }
 
 const updatePreviewForAllSfrs = () => {
@@ -376,6 +437,34 @@ const removeSFR = () => {
     sfrList.value.splice(index, 1)
     selectedSfrId.value = null
     updatePreviewForAllSfrs()
+    saveSessionData()
+  }
+}
+
+// Session management functions
+const saveSessionData = () => {
+  sessionService.saveSfrData(sfrList.value, selectedSfrId.value, nextSfrId.value)
+}
+
+const loadSessionData = () => {
+  const sessionData = sessionService.loadSfrData()
+  if (sessionData) {
+    sfrList.value = sessionData.sfrList || []
+    selectedSfrId.value = sessionData.selectedSfrId || null
+    nextSfrId.value = sessionData.nextSfrId || 1
+    updatePreviewForAllSfrs()
+    console.log(`Loaded session data for user: ${sessionData.userToken}`)
+  }
+}
+
+const clearSessionData = () => {
+  if (confirm('Are you sure you want to clear all SFR data? This action cannot be undone.')) {
+    sessionService.clearSfrData()
+    sfrList.value = []
+    selectedSfrId.value = null
+    nextSfrId.value = 1
+    updatePreviewForAllSfrs()
+    console.log('Session data cleared')
   }
 }
 
@@ -411,13 +500,26 @@ const stopResize = () => {
 // Load SFR classes on mount
 onMounted(async () => {
   try {
+    // Load session data first
+    loadSessionData()
+    
     const response = await api.get('/families')
     sfrClasses.value = response.data.functional
     
-    // Initialize with template
-    updatePreviewForAllSfrs()
+    // Initialize filtered arrays with all data
+    filteredSfrClasses.value = [...sfrClasses.value]
+    
+    // Initialize with template (if no session data was loaded)
+    if (sfrList.value.length === 0) {
+      updatePreviewForAllSfrs()
+    }
+    
+    console.log(`Session initialized for user: ${userToken.value}`)
   } catch (error) {
     console.error('Error fetching SFR classes:', error)
+    // Still load session data even if API fails
+    loadSessionData()
+    updatePreviewForAllSfrs()
   }
 })
 </script>
@@ -601,23 +703,46 @@ onMounted(async () => {
   color: var(--text-bright);
   margin-top: 0;
   margin-bottom: 16px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .sfr-preview-content h5 {
   color: var(--text-bright);
   margin-top: 24px;
   margin-bottom: 12px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .sfr-preview-content h6 {
   color: var(--text-bright);
   margin-top: 20px;
   margin-bottom: 10px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .sfr-preview-content p {
   margin-bottom: 12px;
   color: var(--text);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.sfr-preview-content strong {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.sfr-preview-content em {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-style: italic;
 }
 
 .btn.danger {
@@ -631,6 +756,23 @@ onMounted(async () => {
 }
 
 .btn.danger:disabled {
+  background: #6B7280;
+  border-color: #6B7280;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btn.warning {
+  background: #F59E0B;
+  color: white;
+  border: 1px solid #D97706;
+}
+
+.btn.warning:hover:not(:disabled) {
+  background: #D97706;
+}
+
+.btn.warning:disabled {
   background: #6B7280;
   border-color: #6B7280;
   cursor: not-allowed;
@@ -734,10 +876,39 @@ onMounted(async () => {
   border-radius: 0 0 8px 8px;
   color: var(--text);
   outline: none;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .preview-editor:focus {
   border-color: var(--primary);
+}
+
+/* Ensure consistent typography in editor content */
+.preview-editor h1, .preview-editor h2, .preview-editor h3, 
+.preview-editor h4, .preview-editor h5, .preview-editor h6 {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.preview-editor p {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.preview-editor strong {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.preview-editor em {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-style: italic;
 }
 
 .modal-actions {
@@ -745,5 +916,16 @@ onMounted(async () => {
   gap: 8px;
   justify-content: flex-end;
   margin-top: 24px;
+}
+
+.search-input {
+  border: 2px solid #374151;
+  transition: border-color 0.3s ease;
+}
+
+.search-input:focus {
+  border-color: var(--primary);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 </style>
