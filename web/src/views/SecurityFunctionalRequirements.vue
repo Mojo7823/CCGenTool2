@@ -25,8 +25,8 @@
         <div class="form-group">
           <label for="sfrComponents">SFR Components:</label>
           <select id="sfrComponents" v-model="selectedComponent" @change="onComponentChange" class="input" :disabled="!selectedClass">
-            <option value="">{{ selectedClass ? 'Loading components...' : 'Please select SFR Class First' }}</option>
-            <option v-for="component in components" :key="component.id" :value="component.component">
+            <option value="">{{ selectedClass ? 'Please Choose SFR' : 'Please select SFR Class First' }}</option>
+            <option v-for="component in uniqueComponents" :key="component.id" :value="component.component">
               {{ component.component }} - {{ component.component_name }}
             </option>
           </select>
@@ -38,6 +38,17 @@
             <button type="button" class="btn" @click="formatText('bold')"><strong>B</strong></button>
             <button type="button" class="btn" @click="formatText('italic')"><em>I</em></button>
             <button type="button" class="btn" @click="formatText('underline')"><u>U</u></button>
+            <button type="button" class="btn color-btn" @click="showColorPicker = !showColorPicker">🎨</button>
+            <div v-if="showColorPicker" class="color-picker">
+              <button type="button" class="color-option" style="background-color: #000000" @click="applyColor('#000000')" title="Black"></button>
+              <button type="button" class="color-option" style="background-color: #FF0000" @click="applyColor('#FF0000')" title="Red"></button>
+              <button type="button" class="color-option" style="background-color: #00FF00" @click="applyColor('#00FF00')" title="Green"></button>
+              <button type="button" class="color-option" style="background-color: #0000FF" @click="applyColor('#0000FF')" title="Blue"></button>
+              <button type="button" class="color-option" style="background-color: #FFA500" @click="applyColor('#FFA500')" title="Orange"></button>
+              <button type="button" class="color-option" style="background-color: #800080" @click="applyColor('#800080')" title="Purple"></button>
+              <button type="button" class="color-option" style="background-color: #008080" @click="applyColor('#008080')" title="Teal"></button>
+              <button type="button" class="color-option" style="background-color: #FFD700" @click="applyColor('#FFD700')" title="Gold"></button>
+            </div>
           </div>
           <div 
             ref="previewEditor"
@@ -68,7 +79,9 @@ const selectedComponent = ref('')
 const previewContent = ref('')
 const sfrClasses = ref([])
 const components = ref([])
+const uniqueComponents = ref([])
 const previewEditor = ref(null)
+const showColorPicker = ref(false)
 
 // Methods
 const closeModal = () => {
@@ -77,6 +90,8 @@ const closeModal = () => {
   selectedComponent.value = ''
   previewContent.value = ''
   components.value = []
+  uniqueComponents.value = []
+  showColorPicker.value = false
 }
 
 const onClassChange = async () => {
@@ -88,7 +103,24 @@ const onClassChange = async () => {
   
   try {
     const response = await api.get(`/families/${selectedClass.value}`)
+    
+    // Group components by component name to remove duplicates
+    const uniqueComponentsMap = new Map()
+    response.data.forEach(item => {
+      if (!uniqueComponentsMap.has(item.component)) {
+        uniqueComponentsMap.set(item.component, {
+          id: item.id,
+          component: item.component,
+          component_name: item.component_name
+        })
+      }
+    })
+    
+    // Store the full response data for preview generation
     components.value = response.data
+    
+    // Store unique components for dropdown display
+    uniqueComponents.value = Array.from(uniqueComponentsMap.values())
   } catch (error) {
     console.error('Error fetching components:', error)
   }
@@ -124,6 +156,12 @@ const onPreviewInput = (event) => {
 
 const formatText = (command) => {
   document.execCommand(command, false, null)
+  previewEditor.value?.focus()
+}
+
+const applyColor = (color) => {
+  document.execCommand('foreColor', false, color)
+  showColorPicker.value = false
   previewEditor.value?.focus()
 }
 
@@ -193,11 +231,44 @@ onMounted(async () => {
   border: 1px solid #374151;
   border-bottom: none;
   border-radius: 8px 8px 0 0;
+  position: relative;
 }
 
 .wysiwyg-toolbar .btn {
   padding: 4px 8px;
   font-size: 12px;
+}
+
+.color-btn {
+  position: relative;
+}
+
+.color-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1000;
+  background: var(--panel);
+  border: 1px solid #374151;
+  border-radius: 4px;
+  padding: 8px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  width: 120px;
+}
+
+.color-option {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #374151;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.color-option:hover {
+  transform: scale(1.1);
 }
 
 .preview-editor {
