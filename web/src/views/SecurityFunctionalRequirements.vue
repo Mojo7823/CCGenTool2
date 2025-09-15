@@ -136,13 +136,28 @@ const onComponentChange = async () => {
     // Find the component data that matches the selected component
     const componentData = components.value.filter(c => c.component === selectedComponent.value)
     
-    // Build the preview content with elements and element items
+    // Build the preview content with elements and element items including sub-items
     let content = ''
-    componentData.forEach(item => {
+    
+    for (const item of componentData) {
       if (item.element && item.element_item) {
         content += `<p><strong>${item.element}</strong> ${item.element_item}</p>`
+        
+        // Check if this element has sub-items in element_list_db
+        try {
+          const elementResponse = await api.get(`/element-lists/formatted/${item.element}`)
+          if (elementResponse.data && elementResponse.data.items && elementResponse.data.items.length > 0) {
+            // Add the sub-items
+            elementResponse.data.items.forEach(subItem => {
+              content += `<p style="margin-left: 20px;">${subItem}</p>`
+            })
+          }
+        } catch (elementError) {
+          // Element might not have sub-items, which is fine
+          console.log(`No sub-items found for element ${item.element}`)
+        }
       }
-    })
+    }
     
     previewContent.value = content
   } catch (error) {
