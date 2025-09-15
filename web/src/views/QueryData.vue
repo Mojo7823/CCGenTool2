@@ -112,15 +112,9 @@
           table-class-name="customize-table"
           :loading="loading"
         >
-          <template #item-element_item="{ item }">
-            <div class="element-item-cell">{{ item.element_item }}</div>
-          </template>
-          <template #item-component_name="{ item }">
-            <div class="component-name-cell">{{ item.component_name }}</div>
-          </template>
           <template #empty-message>
             <p>No data found in {{ selectedTable }} table.
-               {{ selectedTable !== 'components' ? 'Try importing XML data first.' : '' }}
+               <span v-if="selectedTable !== 'components'">Try importing XML data first.</span>
             </p>
           </template>
         </EasyDataTable>
