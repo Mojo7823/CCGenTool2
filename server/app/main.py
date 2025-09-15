@@ -306,3 +306,64 @@ def count_family_components(table_name: str, db: Session = Depends(get_db)):
     
     count = db.query(model).count()
     return {"table": table_name, "count": count}
+
+
+@app.post("/families/{table_name}", response_model=ComponentFamilyOut, status_code=201)
+def create_family_component(table_name: str, payload: ComponentCreate, db: Session = Depends(get_db)):
+    """Create a new component in a specific family table."""
+    model = get_family_table_model(table_name)
+    if not model:
+        raise HTTPException(status_code=404, detail="Table not found")
+    
+    # Create item using the family-specific model
+    item = model(
+        class_field=payload.class_name,
+        family=payload.family,
+        component=payload.component,
+        component_name=payload.component_name,
+        element=payload.element,
+        element_item=payload.element_item,
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.put("/families/{table_name}/{item_id}", response_model=ComponentFamilyOut)
+def update_family_component(table_name: str, item_id: int, payload: ComponentUpdate, db: Session = Depends(get_db)):
+    """Update a component in a specific family table."""
+    model = get_family_table_model(table_name)
+    if not model:
+        raise HTTPException(status_code=404, detail="Table not found")
+    
+    item = db.get(model, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    data = payload.model_dump(exclude_unset=True, by_alias=True)
+    if "class" in data:
+        item.class_field = data["class"]
+        del data["class"]
+    for k, v in data.items():
+        setattr(item, k, v)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.delete("/families/{table_name}/{item_id}", status_code=204)
+def delete_family_component(table_name: str, item_id: int, db: Session = Depends(get_db)):
+    """Delete a component from a specific family table."""
+    model = get_family_table_model(table_name)
+    if not model:
+        raise HTTPException(status_code=404, detail="Table not found")
+    
+    item = db.get(model, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    db.delete(item)
+    db.commit()
+    return None

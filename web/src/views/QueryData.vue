@@ -106,7 +106,6 @@
           :show-index="true"
           search-field=""
           search-value=""
-          alternating
           buttons-pagination
           :must-sort="false"
           table-class-name="customize-table"
@@ -367,16 +366,16 @@ onMounted(async () => {
 
 /* DataTable styling */
 .customize-table {
-  --easy-table-body-row-background-color: var(--panel);
-  --easy-table-body-row-hover-background-color: rgba(55, 65, 81, 0.5);
+  --easy-table-body-row-background-color: #ffffff;
+  --easy-table-body-row-hover-background-color: #f3f4f6;
   --easy-table-body-item-padding: 12px;
-  --easy-table-header-background-color: var(--bg-soft);
-  --easy-table-header-font-color: var(--text);
+  --easy-table-header-background-color: #f9fafb;
+  --easy-table-header-font-color: #374151;
   --easy-table-header-item-padding: 12px;
-  --easy-table-body-font-color: var(--text);
-  --easy-table-border: 1px solid #374151;
-  --easy-table-scrollbar-track-color: var(--bg-soft);
-  --easy-table-scrollbar-color: #6b7280;
+  --easy-table-body-font-color: #374151;
+  --easy-table-border: 1px solid #d1d5db;
+  --easy-table-scrollbar-track-color: #f3f4f6;
+  --easy-table-scrollbar-color: #9ca3af;
 }
 
 .element-item-cell {
