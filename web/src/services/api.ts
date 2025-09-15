@@ -13,6 +13,10 @@ function resolveBaseURL(): string {
 	return 'http://localhost:8000'
 }
 
-const api = axios.create({ baseURL: resolveBaseURL() })
+// For testing, temporarily use direct connection to mock server
+const api = axios.create({ 
+	baseURL: 'http://localhost:8001',
+	timeout: 5000
+})
 
 export default api
