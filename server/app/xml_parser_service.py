@@ -120,11 +120,13 @@ class XmlParserService:
                 'message': "No components found in XML file",
                 'components_imported': 0,
                 'components_failed': 0,
+                'element_lists_imported': 0,
                 'tables_used': []
             }
         
         components_imported = 0
         components_failed = 0
+        element_lists_imported = 0
         errors = []
         tables_used = set()
         
@@ -145,13 +147,28 @@ class XmlParserService:
                 components_failed += 1
                 errors.append(f"Failed to import component: {str(e)}")
         
+        # Extract and import element lists
+        try:
+            element_lists = self._extract_element_lists()
+            for element_list_data in element_lists:
+                try:
+                    success = self._insert_element_list_to_db(element_list_data, db)
+                    if success:
+                        element_lists_imported += 1
+                        tables_used.add("element_list_db")
+                except Exception as e:
+                    errors.append(f"Failed to import element list: {str(e)}")
+        except Exception as e:
+            errors.append(f"Failed to extract element lists: {str(e)}")
+        
         try:
             db.commit()
             return {
                 'success': True,
-                'message': f"Successfully imported {components_imported} components",
+                'message': f"Successfully imported {components_imported} components and {element_lists_imported} element lists",
                 'components_imported': components_imported,
                 'components_failed': components_failed,
+                'element_lists_imported': element_lists_imported,
                 'errors': errors if errors else None,
                 'tables_used': list(tables_used)
             }
@@ -465,3 +482,127 @@ class XmlParserService:
     def _is_valid_component(self, component_data: Dict[str, str]) -> bool:
         """Check if component data has sufficient information to be valid."""
         return bool(component_data.get('element') and component_data.get('element_item'))
+    
+    def _extract_element_lists(self) -> List[Dict[str, Any]]:
+        """Extract element list data from the XML document for populating element_list_db."""
+        element_lists = []
+        
+        if not hasattr(self, 'xml_doc'):
+            return element_lists
+        
+        # Find all f-element tags that contain fe-list elements
+        for f_element in self.xml_doc.xpath('.//f-element[fe-list]'):
+            element_id = f_element.get('id', '')
+            
+            if not element_id:
+                continue
+            
+            # Extract hierarchy for this element
+            hierarchy_path = self._get_element_hierarchy_path(f_element)
+            
+            # Get the main element text (before fe-list)
+            main_text = f_element.text.strip() if f_element.text else ''
+            
+            # Find the fe-list within this f-element
+            fe_list = f_element.find('fe-list')
+            if fe_list is not None:
+                order = 1
+                for fe_item in fe_list.findall('fe-item'):
+                    item_text = self._parse_fe_item_text(fe_item)
+                    if item_text.strip():  # Only add non-empty items
+                        element_index = f"{element_id}_{order}"
+                        
+                        # Format with letter prefix (a, b, c, etc.)
+                        letter = chr(ord('a') + order - 1)
+                        formatted_item = f"{letter}. {item_text.strip()}"
+                        
+                        element_list_data = {
+                            'element': element_id,
+                            'element_index': element_index,
+                            'item_list': hierarchy_path,
+                            'item_text': formatted_item,
+                            'main_text': main_text
+                        }
+                        element_lists.append(element_list_data)
+                        order += 1
+        
+        return element_lists
+    
+    def _get_element_hierarchy_path(self, f_element) -> str:
+        """Get the hierarchy path for an f-element."""
+        # Find parent hierarchy
+        component_elem = f_element.getparent()  # f-component
+        family_elem = component_elem.getparent() if component_elem is not None else None  # f-family
+        class_elem = family_elem.getparent() if family_elem is not None else None  # f-class
+        
+        path_parts = []
+        
+        # Build hierarchy path similar to the old parser format
+        if class_elem is not None:
+            class_name = class_elem.get('name', '')
+            class_id = class_elem.get('id', '')
+            if class_name and class_id:
+                path_parts.append(f"f-class - {class_name} - {class_id}")
+        
+        if family_elem is not None:
+            family_name = family_elem.get('name', '')
+            family_id = family_elem.get('id', '')
+            if family_name and family_id:
+                path_parts.append(f"f-family - {family_name} - {family_id}")
+        
+        if component_elem is not None:
+            component_id = component_elem.get('id', '')
+            component_name = component_elem.get('name', '')
+            if component_id:
+                path_parts.append(f"f-component - {component_id}")
+        
+        element_id = f_element.get('id', '')
+        if element_id:
+            path_parts.append(f"f-element - {element_id}")
+        
+        return '>'.join(path_parts)
+    
+    def _parse_fe_item_text(self, fe_item) -> str:
+        """Parse the text content of a fe-item element."""
+        text = fe_item.text.strip() if fe_item.text else ''
+        
+        # Process child elements within fe-item
+        for child in fe_item:
+            if child.tag == 'fe-selection':
+                text += f' [selection: {self._parse_fe_selection(child)}]'
+            elif child.tag == 'fe-assignment':
+                fe_assignment_item = child.find("fe-assignmentitem")
+                if fe_assignment_item is not None and fe_assignment_item.text:
+                    text += f' [assignment: {fe_assignment_item.text.strip()}]'
+            # Add tail text after child elements
+            if child.tail and child.tail.strip():
+                text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
+        
+        return self._remove_newlines_and_extra_whitespaces(text)
+    
+    def _insert_element_list_to_db(self, element_list_data: Dict[str, Any], db: Session) -> bool:
+        """Insert element list data into the element_list_db table."""
+        try:
+            # Check if the element_index already exists
+            existing = db.query(ElementListDb).filter(
+                ElementListDb.element_index == element_list_data['element_index']
+            ).first()
+            
+            if existing:
+                # Update existing record
+                existing.item_list = element_list_data['item_text']
+                db.add(existing)
+            else:
+                # Create new record
+                element_list = ElementListDb(
+                    element=element_list_data['element'],
+                    element_index=element_list_data['element_index'],
+                    item_list=element_list_data['item_text']
+                )
+                db.add(element_list)
+            
+            return True
+        except Exception as e:
+            # Log error but don't fail the entire import
+            print(f"Error inserting element list: {str(e)}")
+            return False
