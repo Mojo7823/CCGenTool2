@@ -107,7 +107,6 @@
             class="preview-editor" 
             contenteditable="true"
             @input="onPreviewInput"
-            v-html="previewContent"
           ></div>
         </div>
 
@@ -165,12 +164,22 @@ const closeModal = () => {
   components.value = []
   uniqueComponents.value = []
   showColorPicker.value = false
+  
+  // Clear the editor content
+  if (previewEditor.value) {
+    previewEditor.value.innerHTML = ''
+  }
 }
 
 const onClassChange = async () => {
   selectedComponent.value = ''
   previewContent.value = ''
   components.value = []
+  
+  // Clear the editor content
+  if (previewEditor.value) {
+    previewEditor.value.innerHTML = ''
+  }
   
   if (!selectedClass.value) return
   
@@ -202,6 +211,9 @@ const onClassChange = async () => {
 const onComponentChange = async () => {
   if (!selectedComponent.value) {
     previewContent.value = ''
+    if (previewEditor.value) {
+      previewEditor.value.innerHTML = ''
+    }
     return
   }
   
@@ -233,12 +245,20 @@ const onComponentChange = async () => {
     }
     
     previewContent.value = content
+    
+    // Update the editor content manually
+    if (previewEditor.value) {
+      previewEditor.value.innerHTML = content
+    }
   } catch (error) {
     console.error('Error building preview:', error)
   }
 }
 
 const onPreviewInput = (event) => {
+  // Simply update the content without trying to restore cursor position
+  // The browser will handle cursor position naturally since we're not 
+  // interfering with the contenteditable behavior
   previewContent.value = event.target.innerHTML
 }
 
@@ -277,7 +297,10 @@ const finalizeSFR = async () => {
     sfrList.value.push(newSfr)
     
     // Select the newly added SFR
-    selectSfr(newSfr.id)
+    selectedSfrId.value = newSfr.id
+    
+    // Update preview to show all SFRs
+    updatePreviewForAllSfrs()
     
     // Close modal
     closeModal()
@@ -292,28 +315,57 @@ const finalizeSFR = async () => {
 
 const selectSfr = (sfrId) => {
   selectedSfrId.value = sfrId
-  const selectedSfr = sfrList.value.find(sfr => sfr.id === sfrId)
+  updatePreviewForAllSfrs()
+}
+
+const updatePreviewForAllSfrs = () => {
+  // Build the full preview with template and ALL SFR content
+  const template = getSfrTemplate()
   
-  if (selectedSfr) {
-    // Build the full preview with template and SFR content
-    const template = getSfrTemplate()
+  if (sfrList.value.length === 0) {
+    selectedSfrPreview.value = template
+    return
+  }
+  
+  // Group SFRs by their class for better organization
+  const sfrsByClass = {}
+  sfrList.value.forEach(sfr => {
+    const classAbbr = sfr.originalClass ? sfr.originalClass.replace('_db', '').toUpperCase() : 'UNKNOWN'
+    if (!sfrsByClass[classAbbr]) {
+      sfrsByClass[classAbbr] = {
+        className: sfr.className,
+        sfrs: []
+      }
+    }
+    sfrsByClass[classAbbr].sfrs.push(sfr)
+  })
+  
+  // Build the SFR sections for all classes
+  let allSfrSections = ''
+  let classIndex = 1
+  
+  Object.keys(sfrsByClass).forEach(classAbbr => {
+    const classData = sfrsByClass[classAbbr]
     
-    // Extract the class abbreviation from the family description
-    const classAbbr = selectedSfr.originalClass ? selectedSfr.originalClass.replace('_db', '').toUpperCase() : ''
-    
-    // Build the SFR section content
-    const sfrSection = `
-<h5>5.1.1 ${classAbbr}: ${selectedSfr.className}</h5>
-<h6>5.1.1.1 ${selectedSfr.componentId} : ${selectedSfr.componentName}</h6>
-<div style="margin-left: 20px;">
-${selectedSfr.previewContent}
-</div>
+    allSfrSections += `
+<h5>5.1.${classIndex} ${classAbbr}: ${classData.className}</h5>
 `
     
-    selectedSfrPreview.value = template + sfrSection
-  } else {
-    selectedSfrPreview.value = getSfrTemplate()
-  }
+    let componentIndex = 1
+    classData.sfrs.forEach(sfr => {
+      allSfrSections += `
+<h6>5.1.${classIndex}.${componentIndex} ${sfr.componentId} : ${sfr.componentName}</h6>
+<div style="margin-left: 20px;">
+${sfr.previewContent}
+</div>
+`
+      componentIndex++
+    })
+    
+    classIndex++
+  })
+  
+  selectedSfrPreview.value = template + allSfrSections
 }
 
 const removeSFR = () => {
@@ -323,7 +375,7 @@ const removeSFR = () => {
   if (index > -1) {
     sfrList.value.splice(index, 1)
     selectedSfrId.value = null
-    selectedSfrPreview.value = getSfrTemplate()
+    updatePreviewForAllSfrs()
   }
 }
 
@@ -363,7 +415,7 @@ onMounted(async () => {
     sfrClasses.value = response.data.functional
     
     // Initialize with template
-    selectedSfrPreview.value = getSfrTemplate()
+    updatePreviewForAllSfrs()
   } catch (error) {
     console.error('Error fetching SFR classes:', error)
   }
