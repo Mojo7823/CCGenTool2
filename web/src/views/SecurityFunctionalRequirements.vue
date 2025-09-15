@@ -1,10 +1,62 @@
 <template>
-  <div>
+  <div class="sfr-container">
     <h2>Security Functional Requirements</h2>
     <p>Manage Security Functional Requirements (SFRs) for your Common Criteria evaluation.</p>
     
-    <div class="actions">
-      <button class="btn primary" @click="showAddModal = true">Add SFR</button>
+    <!-- SFR Table Section -->
+    <div class="sfr-table-section">
+      <div class="sfr-table-header">
+        <h3>Security Functional Requirements</h3>
+        <div class="table-actions">
+          <button class="btn primary" @click="showAddModal = true">Add SFR</button>
+          <button class="btn danger" @click="removeSFR" :disabled="!selectedSfrId">Remove SFR</button>
+        </div>
+      </div>
+      
+      <div class="sfr-table-container">
+        <table class="sfr-table">
+          <thead>
+            <tr>
+              <th>SFR Class</th>
+              <th>SFR Components</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr 
+              v-for="sfr in sfrList" 
+              :key="sfr.id"
+              :class="{ selected: selectedSfrId === sfr.id }"
+              @click="selectSfr(sfr.id)"
+            >
+              <td>{{ sfr.className }}</td>
+              <td>{{ sfr.componentId }}</td>
+            </tr>
+            <tr v-if="sfrList.length === 0">
+              <td colspan="2" class="no-data">No SFRs added yet. Click "Add SFR" to get started.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Resizable Separator -->
+    <div class="separator-container">
+      <div 
+        class="resizable-separator"
+        @mousedown="startResize"
+        title="Drag to resize"
+      >
+        <div class="separator-line"></div>
+        <div class="separator-handle">⋮⋮⋮</div>
+      </div>
+    </div>
+
+    <!-- Preview Section -->
+    <div class="sfr-preview-section" ref="previewSection">
+      <div class="sfr-preview-header">
+        <h3>Security Functional Requirement Preview</h3>
+      </div>
+      <div class="sfr-preview-content" v-html="selectedSfrPreview"></div>
     </div>
 
     <!-- Add SFR Modal -->
@@ -69,7 +121,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import api from '../services/api'
 
 // Data
@@ -82,6 +134,27 @@ const components = ref([])
 const uniqueComponents = ref([])
 const previewEditor = ref(null)
 const showColorPicker = ref(false)
+
+// New data for SFR list and table functionality
+const sfrList = ref([])
+const selectedSfrId = ref(null)
+const selectedSfrPreview = ref('')
+const previewSection = ref(null)
+const isResizing = ref(false)
+const nextSfrId = ref(1)
+
+// Predefined template for SFR preview
+const getSfrTemplate = () => {
+  return `
+<h4>5. SECURITY REQUIREMENTS</h4>
+<p>This section defines the Security functional requirements (SFRs) and the Security assurance requirements (SARs) that fulfill the TOE. Assignment, selection, iteration and refinement operations have been made, adhering to the following conventions:</p>
+<p><strong>Assignments.</strong> They appear between square brackets. The word "assignment" is maintained and the resolution is presented in <strong><em><span style="color: #0000FF;">boldface, italic and blue color</span></em></strong>.</p>
+<p><strong>Selections.</strong> They appear between square brackets. The word "selection" is maintained and the resolution is presented in <strong><em><span style="color: #0000FF;">boldface, italic and blue color</span></em></strong>.</p>
+<p><strong>Iterations.</strong> It includes "/" and an "identifier" following requirement identifier that allows to distinguish the iterations of the requirement. Example: FCS_COP.1/XXX.</p>
+<p><strong>Refinements:</strong> the text where the refinement has been done is shown <strong><em><span style="color: #FF6B6B;">bold, italic, and light red color</span></em></strong>. Where part of the content of a SFR component has been removed, the removed text is shown in <strong><em><span style="color: #FF6B6B;"><s>bold, italic, light red color and crossed out</s></span></em></strong>.</p>
+<h4>5.1 Security Functional Requirements</h4>
+`
+}
 
 // Methods
 const closeModal = () => {
@@ -180,10 +253,107 @@ const applyColor = (color) => {
   previewEditor.value?.focus()
 }
 
-const finalizeSFR = () => {
-  // In a real implementation, this would save the SFR to the database
-  alert(`SFR created successfully!\nClass: ${selectedClass.value}\nComponent: ${selectedComponent.value}`)
-  closeModal()
+const finalizeSFR = async () => {
+  try {
+    // Get the family name for the class
+    const selectedClassObj = sfrClasses.value.find(cls => cls.name === selectedClass.value)
+    const classDisplayName = selectedClassObj ? selectedClassObj.description : selectedClass.value
+    
+    // Get the component name
+    const selectedComponentObj = uniqueComponents.value.find(comp => comp.component === selectedComponent.value)
+    const componentName = selectedComponentObj ? selectedComponentObj.component_name : ''
+    
+    // Create new SFR entry
+    const newSfr = {
+      id: nextSfrId.value++,
+      className: classDisplayName,
+      componentId: selectedComponent.value,
+      componentName: componentName,
+      previewContent: previewContent.value,
+      originalClass: selectedClass.value
+    }
+    
+    // Add to SFR list
+    sfrList.value.push(newSfr)
+    
+    // Select the newly added SFR
+    selectSfr(newSfr.id)
+    
+    // Close modal
+    closeModal()
+    
+    // Show success message
+    console.log(`SFR created successfully!\nClass: ${selectedClass.value}\nComponent: ${selectedComponent.value}`)
+  } catch (error) {
+    console.error('Error finalizing SFR:', error)
+    alert('Error creating SFR. Please try again.')
+  }
+}
+
+const selectSfr = (sfrId) => {
+  selectedSfrId.value = sfrId
+  const selectedSfr = sfrList.value.find(sfr => sfr.id === sfrId)
+  
+  if (selectedSfr) {
+    // Build the full preview with template and SFR content
+    const template = getSfrTemplate()
+    
+    // Extract the class abbreviation from the family description
+    const classAbbr = selectedSfr.originalClass ? selectedSfr.originalClass.replace('_db', '').toUpperCase() : ''
+    
+    // Build the SFR section content
+    const sfrSection = `
+<h5>5.1.1 ${classAbbr}: ${selectedSfr.className}</h5>
+<h6>5.1.1.1 ${selectedSfr.componentId} : ${selectedSfr.componentName}</h6>
+<div style="margin-left: 20px;">
+${selectedSfr.previewContent}
+</div>
+`
+    
+    selectedSfrPreview.value = template + sfrSection
+  } else {
+    selectedSfrPreview.value = getSfrTemplate()
+  }
+}
+
+const removeSFR = () => {
+  if (!selectedSfrId.value) return
+  
+  const index = sfrList.value.findIndex(sfr => sfr.id === selectedSfrId.value)
+  if (index > -1) {
+    sfrList.value.splice(index, 1)
+    selectedSfrId.value = null
+    selectedSfrPreview.value = getSfrTemplate()
+  }
+}
+
+// Resizing functionality
+const startResize = (event) => {
+  isResizing.value = true
+  document.addEventListener('mousemove', handleResize)
+  document.addEventListener('mouseup', stopResize)
+  event.preventDefault()
+}
+
+const handleResize = (event) => {
+  if (!isResizing.value) return
+  
+  const container = document.querySelector('.sfr-container')
+  const rect = container.getBoundingClientRect()
+  const newHeight = event.clientY - rect.top - 100 // Adjust for header and margin
+  
+  if (newHeight > 150 && newHeight < window.innerHeight - 300) {
+    const tableSection = document.querySelector('.sfr-table-section')
+    if (tableSection) {
+      tableSection.style.height = newHeight + 'px'
+    }
+  }
+}
+
+const stopResize = () => {
+  isResizing.value = false
+  document.removeEventListener('mousemove', handleResize)
+  document.removeEventListener('mouseup', stopResize)
 }
 
 // Load SFR classes on mount
@@ -191,6 +361,9 @@ onMounted(async () => {
   try {
     const response = await api.get('/families')
     sfrClasses.value = response.data.functional
+    
+    // Initialize with template
+    selectedSfrPreview.value = getSfrTemplate()
   } catch (error) {
     console.error('Error fetching SFR classes:', error)
   }
@@ -198,6 +371,220 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.sfr-container {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 150px);
+  gap: 0;
+}
+
+.sfr-table-section {
+  min-height: 300px;
+  height: 45vh;
+  border: 1px solid #374151;
+  border-radius: 8px 8px 0 0;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+}
+
+.sfr-table-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #374151;
+  background: var(--bg-soft);
+  border-radius: 8px 8px 0 0;
+}
+
+.sfr-table-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.table-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.sfr-table-container {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+
+.sfr-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+}
+
+.sfr-table th {
+  background: var(--bg-soft);
+  border-bottom: 2px solid #374151;
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-bright);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.sfr-table th:first-child {
+  width: 50%;
+}
+
+.sfr-table th:last-child {
+  width: 50%;
+}
+
+.sfr-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #374151;
+  vertical-align: top;
+}
+
+.sfr-table tbody tr {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.sfr-table tbody tr:hover {
+  background: var(--bg-soft);
+}
+
+.sfr-table tbody tr.selected {
+  background: var(--primary);
+  color: white;
+}
+
+.sfr-table .no-data {
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 40px;
+}
+
+.separator-container {
+  height: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  border-left: 1px solid #374151;
+  border-right: 1px solid #374151;
+  position: relative;
+}
+
+.resizable-separator {
+  width: 100%;
+  height: 10px;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-soft);
+  position: relative;
+}
+
+.separator-line {
+  width: 100%;
+  height: 2px;
+  background: #374151;
+}
+
+.separator-handle {
+  position: absolute;
+  color: #6B7280;
+  font-size: 10px;
+  letter-spacing: -1px;
+  background: var(--bg-soft);
+  padding: 0 8px;
+}
+
+.resizable-separator:hover {
+  background: var(--primary);
+}
+
+.resizable-separator:hover .separator-handle {
+  color: white;
+}
+
+.sfr-preview-section {
+  flex: 1;
+  min-height: 300px;
+  border: 1px solid #374151;
+  border-radius: 0 0 8px 8px;
+  border-top: none;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+}
+
+.sfr-preview-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #374151;
+  background: var(--bg-soft);
+}
+
+.sfr-preview-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.sfr-preview-content {
+  flex: 1;
+  padding: 20px;
+  overflow: auto;
+  background: var(--bg);
+  border-radius: 0 0 8px 8px;
+  line-height: 1.6;
+}
+
+.sfr-preview-content h4 {
+  color: var(--text-bright);
+  margin-top: 0;
+  margin-bottom: 16px;
+}
+
+.sfr-preview-content h5 {
+  color: var(--text-bright);
+  margin-top: 24px;
+  margin-bottom: 12px;
+}
+
+.sfr-preview-content h6 {
+  color: var(--text-bright);
+  margin-top: 20px;
+  margin-bottom: 10px;
+}
+
+.sfr-preview-content p {
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+.btn.danger {
+  background: #DC2626;
+  color: white;
+  border: 1px solid #B91C1C;
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: #B91C1C;
+}
+
+.btn.danger:disabled {
+  background: #6B7280;
+  border-color: #6B7280;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .modal-overlay {
   position: fixed;
   top: 0;
