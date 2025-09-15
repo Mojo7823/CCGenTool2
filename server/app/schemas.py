@@ -113,5 +113,6 @@ class XmlImportResponse(BaseModel):
     message: str
     components_imported: int
     components_failed: int
+    element_lists_imported: Optional[int] = 0
     errors: Optional[List[str]] = None
     tables_used: Optional[List[str]] = None  # Track which tables were used

@@ -297,6 +297,86 @@ def list_element_lists(
     return query.offset(skip).limit(limit).all()
 
 
+@app.get("/element-lists/formatted/{element_id}")
+def get_formatted_element_list(element_id: str, db: Session = Depends(get_db)):
+    """Get formatted element list for a specific element ID (e.g., fau_gen.1.1)."""
+    # Get all element list items for this element
+    element_items = db.query(ElementListDb).filter(
+        ElementListDb.element == element_id
+    ).order_by(ElementListDb.element_index).all()
+    
+    if not element_items:
+        raise HTTPException(status_code=404, detail="Element not found")
+    
+    # Get the main element text from the component table
+    main_element = db.query(FauDb).filter(FauDb.element == element_id).first()
+    if not main_element:
+        # Try other tables if not found in FauDb
+        for model in [FcoDb, FcsDb, FdpDb, FiaDb, FmtDb, FprDb, FptDb, FruDb, FtaDb, FtpDb]:
+            main_element = db.query(model).filter(model.element == element_id).first()
+            if main_element:
+                break
+    
+    main_text = main_element.element_item if main_element else ""
+    
+    # Format the response
+    formatted_items = []
+    for item in element_items:
+        formatted_items.append(item.item_list)
+    
+    return {
+        "element": element_id,
+        "main_text": main_text,
+        "items": formatted_items,
+        "formatted_display": f"{element_id} {main_text}\n" + "\n".join(formatted_items)
+    }
+
+
+@app.get("/families/{family_name}/formatted")
+def get_formatted_family_elements(
+    family_name: str,
+    db: Session = Depends(get_db)
+):
+    """Get formatted element lists for all elements in a family (e.g., fau_gen)."""
+    # Get all elements from the family
+    family_elements = db.query(ElementListDb).filter(
+        ElementListDb.element.like(f"{family_name}%")
+    ).all()
+    
+    if not family_elements:
+        raise HTTPException(status_code=404, detail="No elements found for family")
+    
+    # Group by element
+    elements_grouped = {}
+    for item in family_elements:
+        element_id = item.element
+        if element_id not in elements_grouped:
+            elements_grouped[element_id] = []
+        elements_grouped[element_id].append(item.item_list)
+    
+    result = []
+    for element_id, items in elements_grouped.items():
+        # Get main element text
+        main_element = db.query(FauDb).filter(FauDb.element == element_id).first()
+        if not main_element:
+            # Try other tables
+            for model in [FcoDb, FcsDb, FdpDb, FiaDb, FmtDb, FprDb, FptDb, FruDb, FtaDb, FtpDb]:
+                main_element = db.query(model).filter(model.element == element_id).first()
+                if main_element:
+                    break
+        
+        main_text = main_element.element_item if main_element else ""
+        
+        result.append({
+            "element": element_id,
+            "main_text": main_text,
+            "items": items,
+            "formatted_display": f"{element_id} {main_text}\n" + "\n".join(items)
+        })
+    
+    return result
+
+
 @app.get("/families/{table_name}/count")
 def count_family_components(table_name: str, db: Session = Depends(get_db)):
     """Get count of components in a family table."""
