@@ -10,6 +10,7 @@
         <div class="table-actions">
           <button class="btn primary" @click="showAddModal = true">Add SFR</button>
           <button class="btn secondary" @click="showCustomModal = true">Add Custom SFR</button>
+          <button class="btn info" @click="editSFR" :disabled="!selectedSfrId">Edit Data</button>
           <button class="btn danger" @click="removeSFR" :disabled="!selectedSfrId">Remove SFR</button>
           <button class="btn warning" @click="clearSessionData" :disabled="sfrList.length === 0" title="Clear all SFR data">Clear Data</button>
         </div>
@@ -64,7 +65,7 @@
     <!-- Add SFR Modal -->
     <div v-if="showAddModal" class="modal-overlay" @click="closeModal">
       <div class="modal-content" @click.stop>
-        <h3>Create New SFR</h3>
+        <h3>{{ isEditMode ? 'Edit SFR' : 'Create New SFR' }}</h3>
         
         <!-- Search functionality -->
         <div class="form-group">
@@ -126,7 +127,7 @@
         </div>
 
         <div class="modal-actions">
-          <button class="btn primary" @click="finalizeSFR" :disabled="!selectedComponent">Finalize and Add SFR</button>
+          <button class="btn primary" @click="finalizeSFR" :disabled="!selectedComponent">{{ isEditMode ? 'Update SFR' : 'Finalize and Add SFR' }}</button>
           <button class="btn" @click="closeModal">Cancel</button>
         </div>
       </div>
@@ -135,7 +136,7 @@
     <!-- Add Custom SFR Modal -->
     <div v-if="showCustomModal" class="modal-overlay" @click="closeCustomModal">
       <div class="modal-content" @click.stop>
-        <h3>Create Custom SFR</h3>
+        <h3>{{ isEditMode ? 'Edit Custom SFR' : 'Create Custom SFR' }}</h3>
         
         <div class="form-group">
           <label for="customSfrClass">SFR Class:</label>
@@ -186,7 +187,7 @@
         </div>
 
         <div class="modal-actions">
-          <button class="btn primary" @click="finalizeCustomSFR" :disabled="!customSfrClass || !customSfrComponents">Finalize and Add Custom SFR</button>
+          <button class="btn primary" @click="finalizeCustomSFR" :disabled="!customSfrClass || !customSfrComponents">{{ isEditMode ? 'Update Custom SFR' : 'Finalize and Add Custom SFR' }}</button>
           <button class="btn" @click="closeCustomModal">Cancel</button>
         </div>
       </div>
@@ -234,6 +235,10 @@ const customSfrContent = ref('')
 const customEditor = ref(null)
 const showCustomColorPicker = ref(false)
 
+// Edit functionality
+const isEditMode = ref(false)
+const editingSfrId = ref(null)
+
 // Predefined template for SFR preview
 const getSfrTemplate = () => {
   return `
@@ -257,6 +262,10 @@ const closeModal = () => {
   uniqueComponents.value = []
   showColorPicker.value = false
   searchQuery.value = ''
+  
+  // Reset edit mode
+  isEditMode.value = false
+  editingSfrId.value = null
   
   // Reset filtered arrays to show all available data when modal reopens
   filteredSfrClasses.value = [...sfrClasses.value]
@@ -492,6 +501,10 @@ const closeCustomModal = () => {
   customSfrContent.value = ''
   showCustomColorPicker.value = false
   
+  // Reset edit mode
+  isEditMode.value = false
+  editingSfrId.value = null
+  
   // Clear the editor content
   if (customEditor.value) {
     customEditor.value.innerHTML = ''
@@ -518,22 +531,40 @@ const finalizeCustomSFR = async () => {
     // Get current content from the editor
     const editorContent = customEditor.value ? customEditor.value.innerHTML : customSfrContent.value
     
-    // Create new custom SFR entry
-    const newSfr = {
-      id: nextSfrId.value++,
-      className: customSfrClass.value,
-      componentId: customSfrComponents.value.split(' - ')[0] || customSfrComponents.value,
-      componentName: customSfrComponents.value.split(' - ')[1] || '',
-      previewContent: editorContent || '<p>No description provided.</p>',
-      originalClass: null, // null indicates it's a custom SFR
-      origin: 'custom' // Track the origin
+    if (isEditMode.value) {
+      // Update existing SFR
+      const sfrIndex = sfrList.value.findIndex(sfr => sfr.id === editingSfrId.value)
+      if (sfrIndex > -1) {
+        sfrList.value[sfrIndex] = {
+          ...sfrList.value[sfrIndex],
+          className: customSfrClass.value,
+          componentId: customSfrComponents.value.split(' - ')[0] || customSfrComponents.value,
+          componentName: customSfrComponents.value.split(' - ')[1] || '',
+          previewContent: editorContent || '<p>No description provided.</p>'
+        }
+        
+        console.log(`Custom SFR updated successfully!\nClass: ${customSfrClass.value}\nComponent: ${customSfrComponents.value}`)
+      }
+    } else {
+      // Create new custom SFR entry
+      const newSfr = {
+        id: nextSfrId.value++,
+        className: customSfrClass.value,
+        componentId: customSfrComponents.value.split(' - ')[0] || customSfrComponents.value,
+        componentName: customSfrComponents.value.split(' - ')[1] || '',
+        previewContent: editorContent || '<p>No description provided.</p>',
+        originalClass: null, // null indicates it's a custom SFR
+        origin: 'custom' // Track the origin
+      }
+      
+      // Add to SFR list
+      sfrList.value.push(newSfr)
+      
+      // Select the newly added SFR
+      selectedSfrId.value = newSfr.id
+      
+      console.log(`Custom SFR created successfully!\nClass: ${customSfrClass.value}\nComponent: ${customSfrComponents.value}`)
     }
-    
-    // Add to SFR list
-    sfrList.value.push(newSfr)
-    
-    // Select the newly added SFR
-    selectedSfrId.value = newSfr.id
     
     // Update preview to show all SFRs
     updatePreviewForAllSfrs()
@@ -543,12 +574,48 @@ const finalizeCustomSFR = async () => {
     
     // Close modal
     closeCustomModal()
-    
-    // Show success message
-    console.log(`Custom SFR created successfully!\nClass: ${customSfrClass.value}\nComponent: ${customSfrComponents.value}`)
   } catch (error) {
     console.error('Error finalizing custom SFR:', error)
-    alert('Error creating custom SFR. Please try again.')
+    alert('Error saving custom SFR. Please try again.')
+  }
+}
+
+const editSFR = () => {
+  if (!selectedSfrId.value) return
+  
+  const selectedSfr = sfrList.value.find(sfr => sfr.id === selectedSfrId.value)
+  if (!selectedSfr) return
+  
+  if (selectedSfr.origin === 'custom') {
+    // Edit custom SFR
+    isEditMode.value = true
+    editingSfrId.value = selectedSfr.id
+    customSfrClass.value = selectedSfr.className
+    customSfrComponents.value = selectedSfr.componentName ? 
+      `${selectedSfr.componentId} - ${selectedSfr.componentName}` : 
+      selectedSfr.componentId
+    customSfrContent.value = selectedSfr.previewContent
+    
+    // Set editor content
+    if (customEditor.value) {
+      customEditor.value.innerHTML = selectedSfr.previewContent
+    }
+    
+    showCustomModal.value = true
+  } else {
+    // Edit database SFR - populate the regular modal with existing data
+    isEditMode.value = true
+    editingSfrId.value = selectedSfr.id
+    selectedClass.value = selectedSfr.originalClass || ''
+    selectedComponent.value = selectedSfr.componentId
+    previewContent.value = selectedSfr.previewContent
+    
+    // Set editor content
+    if (previewEditor.value) {
+      previewEditor.value.innerHTML = selectedSfr.previewContent
+    }
+    
+    showAddModal.value = true
   }
 }
 
@@ -562,22 +629,42 @@ const finalizeSFR = async () => {
     const selectedComponentObj = uniqueComponents.value.find(comp => comp.component === selectedComponent.value)
     const componentName = selectedComponentObj ? selectedComponentObj.component_name : ''
     
-    // Create new SFR entry
-    const newSfr = {
-      id: nextSfrId.value++,
-      className: classDisplayName,
-      componentId: selectedComponent.value,
-      componentName: componentName,
-      previewContent: previewContent.value,
-      originalClass: selectedClass.value,
-      origin: 'database' // Track the origin
+    
+    if (isEditMode.value) {
+      // Update existing SFR
+      const sfrIndex = sfrList.value.findIndex(sfr => sfr.id === editingSfrId.value)
+      if (sfrIndex > -1) {
+        sfrList.value[sfrIndex] = {
+          ...sfrList.value[sfrIndex],
+          className: classDisplayName,
+          componentId: selectedComponent.value,
+          componentName: componentName,
+          previewContent: previewContent.value,
+          originalClass: selectedClass.value
+        }
+        
+        console.log(`SFR updated successfully!\nClass: ${selectedClass.value}\nComponent: ${selectedComponent.value}`)
+      }
+    } else {
+      // Create new SFR entry
+      const newSfr = {
+        id: nextSfrId.value++,
+        className: classDisplayName,
+        componentId: selectedComponent.value,
+        componentName: componentName,
+        previewContent: previewContent.value,
+        originalClass: selectedClass.value,
+        origin: 'database' // Track the origin
+      }
+      
+      // Add to SFR list
+      sfrList.value.push(newSfr)
+      
+      // Select the newly added SFR
+      selectedSfrId.value = newSfr.id
+      
+      console.log(`SFR created successfully!\nClass: ${selectedClass.value}\nComponent: ${selectedComponent.value}`)
     }
-    
-    // Add to SFR list
-    sfrList.value.push(newSfr)
-    
-    // Select the newly added SFR
-    selectedSfrId.value = newSfr.id
     
     // Update preview to show all SFRs
     updatePreviewForAllSfrs()
@@ -1175,6 +1262,23 @@ onMounted(async () => {
 }
 
 .btn.secondary:disabled {
+  background: #6B7280;
+  border-color: #6B7280;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btn.info {
+  background: #0EA5E9;
+  color: white;
+  border: 1px solid #0284C7;
+}
+
+.btn.info:hover:not(:disabled) {
+  background: #0284C7;
+}
+
+.btn.info:disabled {
   background: #6B7280;
   border-color: #6B7280;
   cursor: not-allowed;
