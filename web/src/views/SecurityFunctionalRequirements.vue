@@ -9,7 +9,6 @@
         <h3>Security Functional Requirements</h3>
         <div class="table-actions">
           <button class="btn primary" @click="showAddModal = true">Add SFR</button>
-          <button class="btn secondary" @click="showAddCustomModal = true">Add Custom SFR</button>
           <button class="btn danger" @click="removeSFR" :disabled="!selectedSfrId">Remove SFR</button>
           <button class="btn warning" @click="clearSessionData" :disabled="sfrList.length === 0" title="Clear all SFR data">Clear Data</button>
         </div>
@@ -73,7 +72,6 @@
             id="sfrSearch" 
             v-model="searchQuery" 
             @input="onSearchInput"
-            @focus="onSearchFocus"
             type="text" 
             class="input search-input" 
             placeholder="Search by SFR Class or Components..."
@@ -132,99 +130,16 @@
         </div>
       </div>
     </div>
-
-    <!-- Add Custom SFR Modal -->
-    <div v-if="showAddCustomModal" class="modal-overlay" @click="closeCustomModal">
-      <div class="modal-content" @click.stop>
-        <h3>Create Custom SFR</h3>
-        
-        <div class="form-group">
-          <label for="customSfrClass">SFR Class:</label>
-          <input 
-            id="customSfrClass" 
-            v-model="customSfr.sfrClass" 
-            type="text" 
-            class="input" 
-            placeholder="Enter SFR Class (e.g., FAU, FIA, FMT...)"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="customSfrComponent">SFR Component:</label>
-          <input 
-            id="customSfrComponent" 
-            v-model="customSfr.sfrComponent" 
-            type="text" 
-            class="input" 
-            placeholder="Enter SFR Component (e.g., FAU_GEN.1, FIA_ATD.1...)"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="customSfrElement">SFR Element:</label>
-          <input 
-            id="customSfrElement" 
-            v-model="customSfr.sfrElement" 
-            type="text" 
-            class="input" 
-            placeholder="Enter SFR Element (e.g., FAU_GEN.1.1, FAU_GEN.1.2...)"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="customSfrItems">SFR Items:</label>
-          <textarea 
-            id="customSfrItems" 
-            v-model="customSfr.sfrItems" 
-            class="input textarea-input" 
-            rows="4"
-            placeholder="Enter SFR Items description..."
-          ></textarea>
-        </div>
-
-        <div class="form-group">
-          <label for="customSfrPreview">SFR Preview:</label>
-          <div class="wysiwyg-toolbar">
-            <button type="button" class="btn" @click="formatCustomText('bold')"><strong>B</strong></button>
-            <button type="button" class="btn" @click="formatCustomText('italic')"><em>I</em></button>
-            <button type="button" class="btn" @click="formatCustomText('underline')"><u>U</u></button>
-            <button type="button" class="btn color-btn" @click="showCustomColorPicker = !showCustomColorPicker">🎨</button>
-            <div v-if="showCustomColorPicker" class="color-picker">
-              <button type="button" class="color-option" style="background-color: #000000" @click="applyCustomColor('#000000')" title="Black"></button>
-              <button type="button" class="color-option" style="background-color: #FF0000" @click="applyCustomColor('#FF0000')" title="Red"></button>
-              <button type="button" class="color-option" style="background-color: #00FF00" @click="applyCustomColor('#00FF00')" title="Green"></button>
-              <button type="button" class="color-option" style="background-color: #0000FF" @click="applyCustomColor('#0000FF')" title="Blue"></button>
-              <button type="button" class="color-option" style="background-color: #FFA500" @click="applyCustomColor('#FFA500')" title="Orange"></button>
-              <button type="button" class="color-option" style="background-color: #800080" @click="applyCustomColor('#800080')" title="Purple"></button>
-              <button type="button" class="color-option" style="background-color: #008080" @click="applyCustomColor('#008080')" title="Teal"></button>
-              <button type="button" class="color-option" style="background-color: #FFD700" @click="applyCustomColor('#FFD700')" title="Gold"></button>
-            </div>
-          </div>
-          <div 
-            ref="customPreviewEditor"
-            class="preview-editor" 
-            contenteditable="true"
-            @input="onCustomPreviewInput"
-          ></div>
-        </div>
-
-        <div class="modal-actions">
-          <button class="btn primary" @click="finalizeCustomSFR" :disabled="!isCustomSfrValid">Finalize and Add Custom SFR</button>
-          <button class="btn" @click="closeCustomModal">Cancel</button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch, computed } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import api from '../services/api'
 import { sessionService } from '../services/sessionService'
 
 // Data
 const showAddModal = ref(false)
-const showAddCustomModal = ref(false)
 const selectedClass = ref('')
 const selectedComponent = ref('')
 const previewContent = ref('')
@@ -232,19 +147,7 @@ const sfrClasses = ref([])
 const components = ref([])
 const uniqueComponents = ref([])
 const previewEditor = ref(null)
-const customPreviewEditor = ref(null)
-const sfrClassSelect = ref(null)
 const showColorPicker = ref(false)
-const showCustomColorPicker = ref(false)
-
-// Custom SFR data
-const customSfr = ref({
-  sfrClass: '',
-  sfrComponent: '',
-  sfrElement: '',
-  sfrItems: ''
-})
-const customPreviewContent = ref('')
 
 // Search functionality
 const searchQuery = ref('')
@@ -261,14 +164,6 @@ const nextSfrId = ref(1)
 
 // Session management
 const userToken = ref(sessionService.getUserToken())
-
-// Computed properties
-const isCustomSfrValid = computed(() => {
-  return customSfr.value.sfrClass.trim() && 
-         customSfr.value.sfrComponent.trim() && 
-         customSfr.value.sfrElement.trim() && 
-         customSfr.value.sfrItems.trim()
-})
 
 // Predefined template for SFR preview
 const getSfrTemplate = () => {
@@ -293,9 +188,7 @@ const closeModal = () => {
   uniqueComponents.value = []
   showColorPicker.value = false
   searchQuery.value = ''
-  
-  // Important: Reset filtered arrays to original state to fix the bug
-  filteredSfrClasses.value = [...sfrClasses.value]
+  filteredSfrClasses.value = []
   filteredUniqueComponents.value = []
   
   // Clear the editor content
@@ -304,42 +197,8 @@ const closeModal = () => {
   }
 }
 
-const closeCustomModal = () => {
-  showAddCustomModal.value = false
-  customSfr.value = {
-    sfrClass: '',
-    sfrComponent: '',
-    sfrElement: '',
-    sfrItems: ''
-  }
-  customPreviewContent.value = ''
-  showCustomColorPicker.value = false
-  
-  // Clear the custom editor content
-  if (customPreviewEditor.value) {
-    customPreviewEditor.value.innerHTML = ''
-  }
-}
-
 const onSearchInput = () => {
   filterSfrData()
-  // Auto-open dropdown when user types
-  if (searchQuery.value && sfrClassSelect.value) {
-    nextTick(() => {
-      sfrClassSelect.value.focus()
-      sfrClassSelect.value.click()
-    })
-  }
-}
-
-const onSearchFocus = () => {
-  // Auto-open dropdown when search field gets focus
-  if (sfrClassSelect.value) {
-    nextTick(() => {
-      sfrClassSelect.value.focus()
-      sfrClassSelect.value.click()
-    })
-  }
 }
 
 const filterSfrData = () => {
@@ -554,70 +413,6 @@ const applyColor = (color) => {
   previewEditor.value?.focus()
 }
 
-// Custom SFR methods
-const formatCustomText = (command) => {
-  document.execCommand(command, false, null)
-  customPreviewEditor.value?.focus()
-}
-
-const applyCustomColor = (color) => {
-  document.execCommand('foreColor', false, color)
-  showCustomColorPicker.value = false
-  customPreviewEditor.value?.focus()
-}
-
-const onCustomPreviewInput = (event) => {
-  customPreviewContent.value = event.target.innerHTML
-}
-
-const finalizeCustomSFR = async () => {
-  try {
-    // Build preview content from custom inputs
-    let content = ''
-    
-    if (customSfr.value.sfrElement && customSfr.value.sfrItems) {
-      content = `<p><strong>${customSfr.value.sfrElement}</strong> ${customSfr.value.sfrItems}</p>`
-    }
-    
-    // Add any additional content from the editor
-    if (customPreviewContent.value) {
-      content += customPreviewContent.value
-    }
-    
-    // Create new custom SFR entry
-    const newSfr = {
-      id: nextSfrId.value++,
-      className: customSfr.value.sfrClass,
-      componentId: customSfr.value.sfrComponent,
-      componentName: `Custom ${customSfr.value.sfrComponent}`,
-      previewContent: content,
-      originalClass: 'custom',
-      isCustom: true
-    }
-    
-    // Add to SFR list
-    sfrList.value.push(newSfr)
-    
-    // Select the newly added SFR
-    selectedSfrId.value = newSfr.id
-    
-    // Update preview to show all SFRs
-    updatePreviewForAllSfrs()
-    
-    // Save to session
-    saveSessionData()
-    
-    // Close modal
-    closeCustomModal()
-    
-    // Show success message
-    console.log(`Custom SFR created successfully!\nClass: ${customSfr.value.sfrClass}\nComponent: ${customSfr.value.sfrComponent}`)
-  } catch (error) {
-    console.error('Error finalizing custom SFR:', error)
-    alert('Error creating custom SFR. Please try again.')
-  }
-}
-
 const finalizeSFR = async () => {
   try {
     // Get the family name for the class
@@ -679,13 +474,7 @@ const updatePreviewForAllSfrs = () => {
   // Group SFRs by their class for better organization
   const sfrsByClass = {}
   sfrList.value.forEach(sfr => {
-    let classAbbr
-    if (sfr.isCustom) {
-      classAbbr = sfr.originalClass ? sfr.originalClass.toUpperCase() : 'CUSTOM'
-    } else {
-      classAbbr = sfr.originalClass ? sfr.originalClass.replace('_db', '').toUpperCase() : 'UNKNOWN'
-    }
-    
+    const classAbbr = sfr.originalClass ? sfr.originalClass.replace('_db', '').toUpperCase() : 'UNKNOWN'
     if (!sfrsByClass[classAbbr]) {
       sfrsByClass[classAbbr] = {
         className: sfr.className,
@@ -1083,29 +872,6 @@ onMounted(async () => {
   border-color: #6B7280;
   cursor: not-allowed;
   opacity: 0.5;
-}
-
-.btn.secondary {
-  background: #10B981;
-  color: white;
-  border: 1px solid #059669;
-}
-
-.btn.secondary:hover:not(:disabled) {
-  background: #059669;
-}
-
-.btn.secondary:disabled {
-  background: #6B7280;
-  border-color: #6B7280;
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.textarea-input {
-  resize: vertical;
-  min-height: 80px;
-  font-family: inherit;
 }
 
 .modal-overlay {
