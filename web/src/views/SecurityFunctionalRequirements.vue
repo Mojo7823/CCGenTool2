@@ -9,6 +9,7 @@
         <h3>Security Functional Requirements</h3>
         <div class="table-actions">
           <button class="btn primary" @click="showAddModal = true">Add SFR</button>
+          <button class="btn secondary" @click="showCustomModal = true">Add Custom SFR</button>
           <button class="btn danger" @click="removeSFR" :disabled="!selectedSfrId">Remove SFR</button>
           <button class="btn warning" @click="clearSessionData" :disabled="sfrList.length === 0" title="Clear all SFR data">Clear Data</button>
         </div>
@@ -130,6 +131,66 @@
         </div>
       </div>
     </div>
+
+    <!-- Add Custom SFR Modal -->
+    <div v-if="showCustomModal" class="modal-overlay" @click="closeCustomModal">
+      <div class="modal-content" @click.stop>
+        <h3>Create Custom SFR</h3>
+        
+        <div class="form-group">
+          <label for="customSfrClass">SFR Class:</label>
+          <input 
+            id="customSfrClass" 
+            v-model="customSfrClass" 
+            type="text" 
+            class="input" 
+            placeholder="ex. FAU: Security Audit"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="customSfrComponents">SFR Components:</label>
+          <input 
+            id="customSfrComponents" 
+            v-model="customSfrComponents" 
+            type="text" 
+            class="input" 
+            placeholder="ex. FAU_SAR.1 - Audit Review"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="customSfrContent">SFR Items and Description:</label>
+          <div class="wysiwyg-toolbar">
+            <button type="button" class="btn" @click="formatCustomText('bold')"><strong>B</strong></button>
+            <button type="button" class="btn" @click="formatCustomText('italic')"><em>I</em></button>
+            <button type="button" class="btn" @click="formatCustomText('underline')"><u>U</u></button>
+            <button type="button" class="btn color-btn" @click="showCustomColorPicker = !showCustomColorPicker">🎨</button>
+            <div v-if="showCustomColorPicker" class="color-picker">
+              <button type="button" class="color-option" style="background-color: #000000" @click="applyCustomColor('#000000')" title="Black"></button>
+              <button type="button" class="color-option" style="background-color: #FF0000" @click="applyCustomColor('#FF0000')" title="Red"></button>
+              <button type="button" class="color-option" style="background-color: #00FF00" @click="applyCustomColor('#00FF00')" title="Green"></button>
+              <button type="button" class="color-option" style="background-color: #0000FF" @click="applyCustomColor('#0000FF')" title="Blue"></button>
+              <button type="button" class="color-option" style="background-color: #FFA500" @click="applyCustomColor('#FFA500')" title="Orange"></button>
+              <button type="button" class="color-option" style="background-color: #800080" @click="applyCustomColor('#800080')" title="Purple"></button>
+              <button type="button" class="color-option" style="background-color: #008080" @click="applyCustomColor('#008080')" title="Teal"></button>
+              <button type="button" class="color-option" style="background-color: #FFD700" @click="applyCustomColor('#FFD700')" title="Gold"></button>
+            </div>
+          </div>
+          <div 
+            ref="customEditor"
+            class="preview-editor" 
+            contenteditable="true"
+            @input="onCustomInput"
+          ></div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn primary" @click="finalizeCustomSFR" :disabled="!customSfrClass || !customSfrComponents">Finalize and Add Custom SFR</button>
+          <button class="btn" @click="closeCustomModal">Cancel</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -164,6 +225,14 @@ const nextSfrId = ref(1)
 
 // Session management
 const userToken = ref(sessionService.getUserToken())
+
+// Custom SFR functionality
+const showCustomModal = ref(false)
+const customSfrClass = ref('')
+const customSfrComponents = ref('')
+const customSfrContent = ref('')
+const customEditor = ref(null)
+const showCustomColorPicker = ref(false)
 
 // Predefined template for SFR preview
 const getSfrTemplate = () => {
@@ -415,6 +484,74 @@ const applyColor = (color) => {
   previewEditor.value?.focus()
 }
 
+// Custom SFR methods
+const closeCustomModal = () => {
+  showCustomModal.value = false
+  customSfrClass.value = ''
+  customSfrComponents.value = ''
+  customSfrContent.value = ''
+  showCustomColorPicker.value = false
+  
+  // Clear the editor content
+  if (customEditor.value) {
+    customEditor.value.innerHTML = ''
+  }
+}
+
+const onCustomInput = (event) => {
+  customSfrContent.value = event.target.innerHTML
+}
+
+const formatCustomText = (command) => {
+  document.execCommand(command, false, null)
+  customEditor.value?.focus()
+}
+
+const applyCustomColor = (color) => {
+  document.execCommand('foreColor', false, color)
+  showCustomColorPicker.value = false
+  customEditor.value?.focus()
+}
+
+const finalizeCustomSFR = async () => {
+  try {
+    // Get current content from the editor
+    const editorContent = customEditor.value ? customEditor.value.innerHTML : customSfrContent.value
+    
+    // Create new custom SFR entry
+    const newSfr = {
+      id: nextSfrId.value++,
+      className: customSfrClass.value,
+      componentId: customSfrComponents.value.split(' - ')[0] || customSfrComponents.value,
+      componentName: customSfrComponents.value.split(' - ')[1] || '',
+      previewContent: editorContent || '<p>No description provided.</p>',
+      originalClass: null, // null indicates it's a custom SFR
+      origin: 'custom' // Track the origin
+    }
+    
+    // Add to SFR list
+    sfrList.value.push(newSfr)
+    
+    // Select the newly added SFR
+    selectedSfrId.value = newSfr.id
+    
+    // Update preview to show all SFRs
+    updatePreviewForAllSfrs()
+    
+    // Save to session
+    saveSessionData()
+    
+    // Close modal
+    closeCustomModal()
+    
+    // Show success message
+    console.log(`Custom SFR created successfully!\nClass: ${customSfrClass.value}\nComponent: ${customSfrComponents.value}`)
+  } catch (error) {
+    console.error('Error finalizing custom SFR:', error)
+    alert('Error creating custom SFR. Please try again.')
+  }
+}
+
 const finalizeSFR = async () => {
   try {
     // Get the family name for the class
@@ -432,7 +569,8 @@ const finalizeSFR = async () => {
       componentId: selectedComponent.value,
       componentName: componentName,
       previewContent: previewContent.value,
-      originalClass: selectedClass.value
+      originalClass: selectedClass.value,
+      origin: 'database' // Track the origin
     }
     
     // Add to SFR list
@@ -1024,5 +1162,22 @@ onMounted(async () => {
   border-color: var(--primary);
   outline: none;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.btn.secondary {
+  background: #6B7280;
+  color: white;
+  border: 1px solid #4B5563;
+}
+
+.btn.secondary:hover:not(:disabled) {
+  background: #4B5563;
+}
+
+.btn.secondary:disabled {
+  background: #6B7280;
+  border-color: #6B7280;
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 </style>
