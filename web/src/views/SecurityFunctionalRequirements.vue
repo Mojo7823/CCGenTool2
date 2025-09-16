@@ -188,7 +188,9 @@ const closeModal = () => {
   uniqueComponents.value = []
   showColorPicker.value = false
   searchQuery.value = ''
-  filteredSfrClasses.value = []
+  
+  // Reset filtered arrays to show all available data when modal reopens
+  filteredSfrClasses.value = [...sfrClasses.value]
   filteredUniqueComponents.value = []
   
   // Clear the editor content
