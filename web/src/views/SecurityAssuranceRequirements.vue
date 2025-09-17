@@ -8,7 +8,7 @@
       <div class="sar-table-header">
         <h3>Security Assurance Requirements</h3>
         <div class="table-actions">
-          <button class="btn primary" @click="openAddModal" disabled title="Adding SAR entries will be available soon.">Add SAR</button>
+          <button class="btn primary" @click="openAddModal" title="Create a new Security Assurance Requirement">Add SAR</button>
           <button class="btn secondary" @click="openCustomSarModal">Add Custom SAR</button>
           <button class="btn info" @click="editSelectedSar" :disabled="!selectedSarId">Edit Data</button>
           <button class="btn danger" @click="removeSAR" :disabled="!selectedSarId">Remove SAR</button>
@@ -28,7 +28,7 @@
           <thead>
             <tr>
               <th>SAR Class</th>
-              <th>SAR Components</th>
+              <th>Assurance Components</th>
             </tr>
           </thead>
           <tbody>
@@ -39,10 +39,10 @@
               @click="selectSar(sar.id)"
             >
               <td>{{ sar.className }}</td>
-              <td>{{ sar.componentId }}</td>
+              <td>{{ formatAssuranceComponent(sar) }}</td>
             </tr>
             <tr v-if="sarList.length === 0">
-              <td colspan="2" class="no-data">No SARs available yet. Import SAR data or enable creation to get started.</td>
+              <td colspan="2" class="no-data">No SARs available yet. Click "Add SAR" or import data to get started.</td>
             </tr>
           </tbody>
         </table>
@@ -65,6 +65,12 @@
     <div class="sar-preview-section" ref="previewSection">
       <div class="sar-preview-header">
         <h3>Security Assurance Requirement Preview</h3>
+        <div class="eal-selector">
+          <label for="ealLevel">Evaluation Assurance Level:</label>
+          <select id="ealLevel" v-model="selectedEal" class="eal-select">
+            <option v-for="option in ealOptions" :key="option" :value="option">{{ option }}</option>
+          </select>
+        </div>
       </div>
       <div class="sar-preview-content" v-html="selectedSarPreview"></div>
     </div>
@@ -272,6 +278,49 @@ interface SarEntry {
   metadata?: SarMetadata
 }
 
+const ealOptions = ['EAL 1', 'EAL 2', 'EAL 3', 'EAL 4', 'EAL 5', 'EAL 6', 'EAL 7']
+const defaultEalLevel = ealOptions[0]
+const selectedEal = ref<string>(defaultEalLevel)
+let isRestoringSession = false
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const formatAssuranceComponentLabel = (componentId: string, componentName?: string) => {
+  const trimmedName = componentName?.trim()
+  return trimmedName ? `${componentId} : ${trimmedName}` : componentId
+}
+
+const formatComponentHeading = (componentId: string, componentName?: string) => {
+  const trimmedName = componentName?.trim()
+  return trimmedName ? `${componentId} – ${trimmedName}` : componentId
+}
+
+const formatClassHeading = (className: string, classCode: string) => {
+  const trimmed = className.trim()
+  if (!trimmed) {
+    return classCode
+  }
+
+  const colonIndex = trimmed.indexOf(':')
+  if (colonIndex !== -1) {
+    const descriptor = trimmed.slice(colonIndex + 1).trim()
+    if (descriptor) {
+      return `${descriptor} (${classCode})`
+    }
+  }
+
+  return `${trimmed} (${classCode})`
+}
+
+const formatAssuranceComponent = (sar: SarEntry) =>
+  formatAssuranceComponentLabel(sar.componentId, sar.componentName)
+
 // Modal state
 const showAddModal = ref(false)
 const showCustomModal = ref(false)
@@ -397,16 +446,127 @@ const parseCustomComponentInput = (input: string) => {
 }
 
 // Predefined template for SAR preview
-const getSarTemplate = () => {
+const getSarTemplate = (ealLevel: string) => {
+  const escapedEal = escapeHtml(ealLevel)
   return `
 <h4>5. SECURITY REQUIREMENTS</h4>
-<p>This section defines the Security assurance requirements (SARs) that fulfil the TOE. Assignment, selection, iteration and refinement operations follow the conventions below:</p>
-<p><strong>Assignments.</strong> They appear between square brackets. The word "assignment" is maintained and the resolution is presented in <strong><em><span style="color: #0000FF;">boldface, italic and blue color</span></em></strong>.</p>
-<p><strong>Selections.</strong> They appear between square brackets. The word "selection" is maintained and the resolution is presented in <strong><em><span style="color: #0000FF;">boldface, italic and blue color</span></em></strong>.</p>
-<p><strong>Iterations.</strong> It includes "/" and an "identifier" following requirement identifier that allows to distinguish the iterations of the requirement. Example: ALC_CMC.3/XYZ.</p>
-<p><strong>Refinements:</strong> the text where the refinement has been done is shown <strong><em><span style="color: #FF6B6B;">bold, italic, and light red color</span></em></strong>. Where part of the content of a SAR component has been removed, the removed text is shown in <strong><em><span style="color: #FF6B6B;"><s>bold, italic, light red color and crossed out</s></span></em></strong>.</p>
-<h4>5.2 Security Assurance Requirements</h4>
+<h4>5.2 SECURITY ASSURANCE REQUIREMENTS</h4>
+<p>The development and the evaluation of the TOE shall be done in accordance to the following security assurance requirements: <code>${escapedEal}</code> as specified in Part 5 of the Common Criteria.</p>
+<p>No operations are applied to the assurance components.</p>
+<p>The TOE shall meet the following security assurance requirements:</p>
 `
+}
+
+const buildSarTableHtml = (
+  classOrder: string[],
+  groups: Record<string, { className: string; sars: SarEntry[] }>
+) => {
+  let html = `
+<table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
+  <thead>
+    <tr>
+      <th style="border: 1px solid #9CA3AF; padding: 8px; background-color: #F3F4F6; text-align: left;">SAR Class</th>
+      <th style="border: 1px solid #9CA3AF; padding: 8px; background-color: #F3F4F6; text-align: left;">Assurance Components</th>
+    </tr>
+  </thead>
+  <tbody>
+`
+
+  if (classOrder.length === 0) {
+    html += `
+    <tr>
+      <td colspan="2" style="border: 1px solid #9CA3AF; padding: 12px; font-style: italic; color: #6B7280; text-align: center;">
+        No Security Assurance Requirements selected.
+      </td>
+    </tr>
+`
+  } else {
+    classOrder.forEach(classCode => {
+      const classData = groups[classCode]
+      if (!classData) {
+        return
+      }
+
+      const sarEntries = classData.sars ?? []
+
+      if (sarEntries.length === 0) {
+        html += `
+    <tr>
+      <td style="border: 1px solid #9CA3AF; padding: 8px; font-weight: 600;">${escapeHtml(classData.className)}</td>
+      <td style="border: 1px solid #9CA3AF; padding: 8px; font-style: italic; color: #6B7280;">No assurance components recorded.</td>
+    </tr>
+`
+        return
+      }
+
+      sarEntries.forEach((sar, index) => {
+        const componentLabel = escapeHtml(formatAssuranceComponentLabel(sar.componentId, sar.componentName))
+        const classCell =
+          index === 0
+            ? `<td rowspan="${sarEntries.length}" style="border: 1px solid #9CA3AF; padding: 8px; vertical-align: top; font-weight: 600;">${escapeHtml(classData.className)}</td>`
+            : ''
+
+        html += `
+    <tr>
+      ${classCell}
+      <td style="border: 1px solid #9CA3AF; padding: 8px;">${componentLabel}</td>
+    </tr>
+`
+      })
+    })
+  }
+
+  html += `
+  </tbody>
+</table>
+<p style="text-align: center; font-style: italic; margin-top: 8px;">Table 7 Security Assurance Components</p>
+`
+
+  return html
+}
+
+const buildSarSectionsHtml = (
+  classOrder: string[],
+  groups: Record<string, { className: string; sars: SarEntry[] }>
+) => {
+  if (classOrder.length === 0) {
+    return '<p style="margin-top: 16px; font-style: italic; color: #6B7280;">No Security Assurance Requirements have been defined.</p>'
+  }
+
+  let html = ''
+  let classIndex = 1
+
+  classOrder.forEach(classCode => {
+    const classData = groups[classCode]
+    if (!classData) {
+      return
+    }
+
+    const headingText = escapeHtml(formatClassHeading(classData.className, classCode))
+    html += `<h5 style="margin-top: 24px;">5.3.${classIndex} ${headingText}</h5>`
+
+    if (!classData.sars.length) {
+      html += '<p style="margin-left: 20px; font-style: italic; color: #6B7280;">No assurance components documented for this class.</p>'
+      classIndex++
+      return
+    }
+
+    classData.sars.forEach(sar => {
+      const componentHeading = escapeHtml(formatComponentHeading(sar.componentId, sar.componentName))
+      const isSelected = selectedSarId.value === sar.id
+      const highlightColor = isSelected ? '#FCD34D' : '#FFF3B0'
+      const content = sar.previewContent && sar.previewContent.trim().length > 0
+        ? sar.previewContent
+        : '<p style="font-style: italic; color: #6B7280;">No component details provided.</p>'
+
+      html += `<p style="margin: 12px 0 4px; font-size: 13pt; font-weight: 600; display: inline-block; padding: 4px 8px; border-radius: 4px; background-color: ${highlightColor};">[${componentHeading}]</p>`
+      html += `<div style="margin-left: 20px; font-size: 12pt; line-height: 1.6;">${content}</div>`
+    })
+
+    classIndex++
+  })
+
+  return html
 }
 
 const resetAddModalState = () => {
@@ -796,53 +956,27 @@ const selectSar = (sarId: number) => {
 }
 
 const updatePreviewForAllSars = () => {
-  const template = getSarTemplate()
+  const template = getSarTemplate(selectedEal.value)
 
-  if (sarList.value.length === 0) {
-    selectedSarPreview.value = template
-    return
-  }
+  const groups: Record<string, { className: string; sars: SarEntry[] }> = {}
+  const classOrder: string[] = []
 
-  const sarsByClass: Record<string, { className: string; sars: SarEntry[] }> = {}
   sarList.value.forEach(sar => {
     const key = sar.classCode || 'UNKNOWN'
-    if (!sarsByClass[key]) {
-      sarsByClass[key] = {
-        className: sar.className,
+    if (!groups[key]) {
+      groups[key] = {
+        className: sar.className || key,
         sars: []
       }
+      classOrder.push(key)
     }
-    sarsByClass[key].sars.push(sar)
+    groups[key].sars.push(sar)
   })
 
-  let allSarSections = ''
-  let classIndex = 1
+  const tableHtml = buildSarTableHtml(classOrder, groups)
+  const sectionsHtml = buildSarSectionsHtml(classOrder, groups)
 
-  Object.keys(sarsByClass).forEach(classCode => {
-    const classData = sarsByClass[classCode]
-
-    allSarSections += `
-<h5>5.2.${classIndex} ${classCode}: ${classData.className}</h5>
-`
-
-    let componentIndex = 1
-    classData.sars.forEach(sar => {
-      const componentTitle = sar.componentName
-        ? `${sar.componentId} : ${sar.componentName}`
-        : sar.componentId
-      allSarSections += `
-<h6>5.2.${classIndex}.${componentIndex} ${componentTitle}</h6>
-<div style="margin-left: 20px;">
-${sar.previewContent}
-</div>
-`
-      componentIndex++
-    })
-
-    classIndex++
-  })
-
-  selectedSarPreview.value = template + allSarSections
+  selectedSarPreview.value = template + tableHtml + sectionsHtml
 }
 
 const removeSAR = () => {
@@ -858,7 +992,10 @@ const removeSAR = () => {
 }
 
 const saveSessionData = () => {
-  sessionService.saveSarData(sarList.value, selectedSarId.value, nextSarId.value)
+  if (isRestoringSession) {
+    return
+  }
+  sessionService.saveSarData(sarList.value, selectedSarId.value, nextSarId.value, selectedEal.value)
 }
 
 const deriveClassCodeForEntry = (entry: Partial<SarEntry> & { source?: SarSource }) => {
@@ -887,19 +1024,26 @@ const deriveClassCodeForEntry = (entry: Partial<SarEntry> & { source?: SarSource
 const loadSessionData = () => {
   const sessionData = sessionService.loadSarData()
   if (sessionData) {
-    sarList.value = (sessionData.sarList || []).map((item: any) => {
-      const source: SarSource = item.source === 'custom' ? 'custom' : 'database'
-      const metadata: SarMetadata = item.metadata || {}
-      return {
-        ...item,
-        source,
-        classCode: deriveClassCodeForEntry({ ...item, source }),
-        metadata
-      } as SarEntry
-    })
+    isRestoringSession = true
+    try {
+      sarList.value = (sessionData.sarList || []).map((item: any) => {
+        const source: SarSource = item.source === 'custom' ? 'custom' : 'database'
+        const metadata: SarMetadata = item.metadata || {}
+        return {
+          ...item,
+          source,
+          classCode: deriveClassCodeForEntry({ ...item, source }),
+          metadata
+        } as SarEntry
+      })
 
-    selectedSarId.value = sessionData.selectedSarId ?? null
-    nextSarId.value = sessionData.nextSarId ?? 1
+      selectedSarId.value = sessionData.selectedSarId ?? null
+      nextSarId.value = sessionData.nextSarId ?? 1
+      selectedEal.value = sessionData.selectedEal || defaultEalLevel
+    } finally {
+      isRestoringSession = false
+    }
+
     updatePreviewForAllSars()
     console.log(`Loaded session data for user: ${sessionData.userToken}`)
   }
@@ -907,10 +1051,17 @@ const loadSessionData = () => {
 
 const clearSessionData = () => {
   if (confirm('Are you sure you want to clear all SAR data? This action cannot be undone.')) {
-    sessionService.clearSarData()
-    sarList.value = []
-    selectedSarId.value = null
-    nextSarId.value = 1
+    isRestoringSession = true
+    try {
+      sessionService.clearSarData()
+      sarList.value = []
+      selectedSarId.value = null
+      nextSarId.value = 1
+      selectedEal.value = defaultEalLevel
+    } finally {
+      isRestoringSession = false
+    }
+
     updatePreviewForAllSars()
     console.log('Session data cleared')
   }
@@ -1001,6 +1152,14 @@ const stopResize = () => {
   document.removeEventListener('mousemove', handleResize)
   document.removeEventListener('mouseup', stopResize)
 }
+
+watch(selectedEal, () => {
+  if (isRestoringSession) {
+    return
+  }
+  updatePreviewForAllSars()
+  saveSessionData()
+})
 
 watch(showAddModal, value => {
   if (!value) {
@@ -1195,12 +1354,44 @@ onMounted(async () => {
   padding: 16px 20px;
   border-bottom: 1px solid #374151;
   background: var(--bg-soft);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .sar-preview-header h3 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
+  flex: 1;
+}
+
+.eal-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.eal-selector label {
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.eal-select {
+  background: var(--bg);
+  border: 1px solid #4B5563;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--text-bright);
+}
+
+.eal-select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
 }
 
 .sar-preview-content {
