@@ -4,6 +4,7 @@ import QueryData from '../views/QueryData.vue'
 import ModifyData from '../views/ModifyData.vue'
 import XmlParser from '../views/XmlParser.vue'
 import SecurityFunctionalRequirements from '../views/SecurityFunctionalRequirements.vue'
+import SecurityAssuranceRequirements from '../views/SecurityAssuranceRequirements.vue'
 
 const routes = [
   { path: '/', name: 'home', component: Home },
@@ -11,6 +12,7 @@ const routes = [
   { path: '/database/modify', name: 'modify', component: ModifyData },
   { path: '/xml-parser', name: 'xml-parser', component: XmlParser },
   { path: '/security/sfr', name: 'security-sfr', component: SecurityFunctionalRequirements },
+  { path: '/security/sar', name: 'security-sar', component: SecurityAssuranceRequirements },
 ]
 
 const router = createRouter({

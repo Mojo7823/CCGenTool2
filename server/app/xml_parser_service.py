@@ -381,8 +381,9 @@ class XmlParserService:
         if not hasattr(self, 'xml_doc'):
             return components
         
-        # Find all f-element and a-element tags in the XML
-        for element in self.xml_doc.xpath('.//f-element | .//a-element'):
+        # Find all f-element tags and assurance evidence elements in the XML
+        element_query = './/f-element | .//a-element | .//ae-developer | .//ae-content | .//ae-evaluator'
+        for element in self.xml_doc.xpath(element_query):
             component_data = self._extract_component_from_element(element)
             if self._is_valid_component(component_data):
                 components.append(component_data)
@@ -445,40 +446,45 @@ class XmlParserService:
     
     def _parse_element_text_content(self, element) -> str:
         """Parse the complete text content of an element including assignments."""
-        text = element.text.strip() if element.text else ''
-        
+        parts: List[str] = []
+
+        if element.text and element.text.strip():
+            parts.append(self._remove_newlines_and_extra_whitespaces(element.text))
+
         for child in element:
             if child.tag == 'assignment':
-                # Handle assignment elements
                 assign_item = child.find("assignmentitem")
                 if assign_item is not None and assign_item.text:
-                    text += f' [assignment: {assign_item.text.strip()}]'
-                # Add tail text after assignment
+                    parts.append(f"[assignment: {self._remove_newlines_and_extra_whitespaces(assign_item.text)}]")
                 if child.tail and child.tail.strip():
-                    text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
-            elif child.tag == 'fe-assignment':
-                # Handle fe-assignment elements (legacy format)
+                    parts.append(self._remove_newlines_and_extra_whitespaces(child.tail))
+                continue
+            if child.tag == 'fe-assignment':
                 fe_item = child.find("fe-assignmentitem")
                 if fe_item is not None and fe_item.text:
-                    text += f' [assignment: {fe_item.text.strip()}]'
+                    parts.append(f"[assignment: {self._remove_newlines_and_extra_whitespaces(fe_item.text)}]")
                 if child.tail and child.tail.strip():
-                    text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
-            elif child.tag == 'fe-selection':
-                # Handle selections
-                text += ' [selection: '
+                    parts.append(self._remove_newlines_and_extra_whitespaces(child.tail))
+                continue
+            if child.tag == 'fe-selection':
                 selection_items = child.findall('fe-selectionitem')
                 items_text = [item.text.strip() for item in selection_items if item.text and item.text.strip()]
                 if items_text:
-                    text += ', '.join(items_text)
-                text += ']'
+                    parts.append(f"[selection: {', '.join(items_text)}]")
                 if child.tail and child.tail.strip():
-                    text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
-            elif child.tail and child.tail.strip():
-                # Add any tail text after other elements
-                text += ' ' + self._remove_newlines_and_extra_whitespaces(child.tail.strip())
-        
-        return self._remove_newlines_and_extra_whitespaces(text)
-    
+                    parts.append(self._remove_newlines_and_extra_whitespaces(child.tail))
+                continue
+
+            nested_text = self._parse_element_text_content(child)
+            if nested_text:
+                parts.append(nested_text)
+
+            if child.tail and child.tail.strip():
+                parts.append(self._remove_newlines_and_extra_whitespaces(child.tail))
+
+        combined = ' '.join(part for part in parts if part)
+        return self._remove_newlines_and_extra_whitespaces(combined)
+
     def _is_valid_component(self, component_data: Dict[str, str]) -> bool:
         """Check if component data has sufficient information to be valid."""
         return bool(component_data.get('element') and component_data.get('element_item'))

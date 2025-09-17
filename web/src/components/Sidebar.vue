@@ -26,6 +26,7 @@
         <div v-if="securityOpen" class="accordion-content">
           <ul class="menu">
             <li><RouterLink to="/security/sfr" active-class="active">Security Functional Requirements</RouterLink></li>
+            <li><RouterLink to="/security/sar" active-class="active">Security Assurance Requirements</RouterLink></li>
           </ul>
         </div>
       </div>
