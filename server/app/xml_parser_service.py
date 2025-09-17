@@ -446,6 +446,13 @@ class XmlParserService:
     
     def _parse_element_text_content(self, element) -> str:
         """Parse the complete text content of an element including assignments."""
+
+        # Assurance evidence elements (ae-*) should only capture their direct requirement text.
+        if element.tag.startswith('ae-'):
+            assurance_text = self._extract_assurance_text(element)
+            if assurance_text:
+                return assurance_text
+
         parts: List[str] = []
 
         if element.text and element.text.strip():
@@ -484,6 +491,44 @@ class XmlParserService:
 
         combined = ' '.join(part for part in parts if part)
         return self._remove_newlines_and_extra_whitespaces(combined)
+
+    def _extract_assurance_text(self, element) -> str:
+        """Collect only the primary requirement text for assurance evidence elements."""
+        parts: List[str] = []
+
+        if element.text and element.text.strip():
+            parts.append(self._remove_newlines_and_extra_whitespaces(element.text))
+
+        for child in element:
+            # Skip detailed evaluator work units such as m-workunit and similar blocks
+            if self._is_assurance_detail_element(child.tag):
+                if child.tail and child.tail.strip():
+                    parts.append(self._remove_newlines_and_extra_whitespaces(child.tail))
+                continue
+
+            inline_text = self._extract_assurance_text(child)
+            if inline_text:
+                parts.append(inline_text)
+
+            if child.tail and child.tail.strip():
+                parts.append(self._remove_newlines_and_extra_whitespaces(child.tail))
+
+        if not parts:
+            return ""
+
+        combined = ' '.join(part for part in parts if part)
+        return self._remove_newlines_and_extra_whitespaces(combined)
+
+    @staticmethod
+    def _is_assurance_detail_element(tag: str) -> bool:
+        """Identify tags that contain evaluator work units or detailed guidance."""
+        if not tag:
+            return False
+
+        if tag.startswith('m-'):
+            return True
+
+        return tag == 'ae-dc-element'
 
     def _is_valid_component(self, component_data: Dict[str, str]) -> bool:
         """Check if component data has sufficient information to be valid."""
