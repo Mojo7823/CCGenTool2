@@ -12,6 +12,7 @@ export interface SarSessionData {
   sarList: any[]
   selectedSarId: number | null
   nextSarId: number
+  ealLevel?: string
   userToken: string
   timestamp: number
 }
@@ -129,11 +130,12 @@ class SessionService {
   /**
    * Save SAR data to session storage
    */
-  saveSarData(sarList: any[], selectedSarId: number | null, nextSarId: number): void {
+  saveSarData(sarList: any[], selectedSarId: number | null, nextSarId: number, ealLevel: string): void {
     const sessionData: SarSessionData = {
       sarList,
       selectedSarId,
       nextSarId,
+      ealLevel,
       userToken: this.userToken,
       timestamp: Date.now()
     }
