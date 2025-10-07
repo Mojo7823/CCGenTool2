@@ -5,7 +5,12 @@
         <h1>Cover Image</h1>
         <span class="menubar-subtitle">Insert Cover Image Here</span>
       </div>
-      <button class="btn primary" type="button" @click="openPreview" :disabled="!hasPreview">
+      <button
+        class="btn primary"
+        type="button"
+        @click="openPreview"
+        :disabled="!hasPreview || previewLoading"
+      >
         Preview Cover
       </button>
     </div>
@@ -78,39 +83,20 @@
     </div>
 
     <div v-if="showPreview" class="modal-overlay" @click.self="closePreview">
-      <div class="modal-card">
+      <div class="modal-card docx-modal">
         <header class="modal-header">
           <h2>Cover Preview</h2>
           <button class="modal-close" type="button" @click="closePreview">&times;</button>
         </header>
-        <section class="modal-body">
-          <div class="modal-image" v-if="imageUrl">
-            <img :src="imageUrl" alt="Cover preview" />
-          </div>
-          <div v-else class="modal-placeholder">
-            <span>No cover image uploaded.</span>
-          </div>
-          <div class="modal-details">
-            <h3>{{ form.title || 'Security Target Title' }}</h3>
-            <p class="modal-description">{{ form.description || 'Additional description will appear here.' }}</p>
-            <dl>
-              <div>
-                <dt>Version</dt>
-                <dd>{{ form.version || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Revision</dt>
-                <dd>{{ form.revision || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Manufacturer/Laboratory</dt>
-                <dd>{{ form.manufacturer || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Date</dt>
-                <dd>{{ formattedDate }}</dd>
-              </div>
-            </dl>
+        <section class="modal-body docx-modal-body">
+          <div class="docx-preview-shell">
+            <div v-if="previewLoading" class="modal-status overlay">Generating preview…</div>
+            <div v-else-if="previewError" class="modal-error">{{ previewError }}</div>
+            <div
+              ref="docxPreviewContainer"
+              class="docx-preview-container"
+              :class="{ hidden: previewLoading || !!previewError }"
+            ></div>
           </div>
         </section>
         <footer class="modal-footer">
@@ -122,7 +108,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { renderAsync } from 'docx-preview'
 import api from '../services/api'
 
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -131,7 +118,11 @@ const uploading = ref(false)
 const uploadError = ref('')
 const uploadedImagePath = ref<string | null>(null)
 const showPreview = ref(false)
+const previewLoading = ref(false)
+const previewError = ref('')
 const hasUploaded = ref(false)
+const generatedDocxPath = ref<string | null>(null)
+const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 
 const form = reactive({
   title: '',
@@ -149,15 +140,6 @@ const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !
 const imageUrl = computed(() => {
   if (!uploadedImagePath.value) return ''
   return api.getUri({ url: uploadedImagePath.value })
-})
-
-const formattedDate = computed(() => {
-  if (!form.date) return '—'
-  try {
-    return new Date(form.date).toLocaleDateString()
-  } catch (error) {
-    return form.date
-  }
 })
 
 function ensureUserId() {
@@ -225,13 +207,84 @@ function handleDrop(event: DragEvent) {
   uploadFile(files[0])
 }
 
-function openPreview() {
-  if (!hasPreview.value) return
+async function openPreview() {
+  if (!hasPreview.value || previewLoading.value) return
+
+  if (!userId.value) {
+    ensureUserId()
+  }
+
+  if (!userId.value) {
+    previewError.value = 'Unable to determine user session identifier.'
+    showPreview.value = true
+    return
+  }
+
+  // Remove any previously generated preview before creating a fresh one.
+  cleanupDocx()
+
+  previewError.value = ''
   showPreview.value = true
+  previewLoading.value = true
+
+  try {
+    const payload = {
+      user_id: userId.value,
+      title: form.title,
+      version: form.version,
+      revision: form.revision,
+      description: form.description,
+      manufacturer: form.manufacturer,
+      date: form.date,
+      image_path: uploadedImagePath.value,
+    }
+
+    const response = await api.post('/cover/preview', payload)
+    const path: string | undefined = response.data?.path
+
+    if (!path) {
+      throw new Error('Preview generation did not return a document path.')
+    }
+
+    generatedDocxPath.value = path
+    await nextTick()
+    await renderDocxPreview(path)
+  } catch (error: any) {
+    const message = error?.response?.data?.detail || error?.message || 'Unable to generate preview.'
+    previewError.value = message
+  } finally {
+    previewLoading.value = false
+  }
 }
 
 function closePreview() {
   showPreview.value = false
+  if (!previewLoading.value) {
+    previewError.value = ''
+  }
+
+  // Clean up the previously generated DOCX so repeat previews start fresh.
+  cleanupDocx()
+}
+
+async function renderDocxPreview(path: string) {
+  if (!docxPreviewContainer.value) return
+
+  try {
+    docxPreviewContainer.value.innerHTML = ''
+    const response = await api.get(path, { responseType: 'arraybuffer' })
+    const buffer = response.data as ArrayBuffer
+    await renderAsync(buffer, docxPreviewContainer.value, undefined, {
+      className: 'docx-rendered',
+      inWrapper: true,
+      ignoreWidth: false,
+      ignoreHeight: false,
+      useBase64URL: true,
+    })
+  } catch (error: any) {
+    const message = error?.message || 'Failed to render DOCX preview.'
+    previewError.value = message
+  }
 }
 
 function removeEventListeners() {
@@ -241,11 +294,23 @@ function removeEventListeners() {
 }
 
 function cleanupUploads(keepalive = false) {
-  if (!hasUploaded.value || !userId.value) return
-  const url = api.getUri({ url: `/cover/upload/${userId.value}` })
+  if (!userId.value) return
+
+  if (hasUploaded.value) {
+    const url = api.getUri({ url: `/cover/upload/${userId.value}` })
+    fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
+    hasUploaded.value = false
+    uploadedImagePath.value = null
+  }
+
+  cleanupDocx(keepalive)
+}
+
+function cleanupDocx(keepalive = false) {
+  if (!userId.value || !generatedDocxPath.value) return
+  const url = api.getUri({ url: `/cover/preview/${userId.value}` })
   fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
-  hasUploaded.value = false
-  uploadedImagePath.value = null
+  generatedDocxPath.value = null
 }
 
 function handleBeforeUnload() {
@@ -397,6 +462,75 @@ label {
 .textarea {
   min-height: 120px;
   resize: vertical;
+}
+
+.docx-modal {
+  width: min(900px, 90vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.docx-modal-body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-soft);
+  padding: 0;
+  min-height: 60vh;
+}
+
+.modal-status,
+.modal-error {
+  padding: 24px;
+  text-align: center;
+  font-weight: 500;
+}
+
+.modal-status.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.75);
+  color: #f9fafb;
+  padding: 0;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.modal-error {
+  color: var(--danger);
+}
+
+.docx-preview-shell {
+  flex: 1;
+  overflow: auto;
+  padding: 24px;
+  background: #d1d5db;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  position: relative;
+}
+
+.docx-preview-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.docx-preview-container.hidden {
+  display: none;
+}
+
+.docx-preview-container .docx-wrapper {
+  margin: 0 auto;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.docx-preview-container .docx-wrapper .docx {
+  background: white;
 }
 
 .modal-overlay {
