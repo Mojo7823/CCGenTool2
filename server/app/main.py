@@ -17,7 +17,10 @@ from sqlalchemy import text
 
 from docx import Document
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
-from docx.shared import Mm, Pt
+from docx.shared import Mm, Pt, RGBColor
+from docx.oxml import parse_xml
+from docx.oxml.ns import nsdecls
+from lxml import html as lxml_html
 
 from .database import Base, engine, get_db
 from .models import (
@@ -81,6 +84,21 @@ class CoverPreviewRequest(BaseModel):
     manufacturer: Optional[str] = None
     date: Optional[str] = None
     image_path: Optional[str] = Field(None, alias="image_path")
+
+
+class SfrPreviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    sfr_html: str = Field(..., alias="sfr_html")
+
+
+class SarPreviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    sar_html: str = Field(..., alias="sar_html")
+    eal_level: str = Field(..., alias="eal_level")
 
 
 def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Optional[Path]:
@@ -160,6 +178,168 @@ def _build_cover_document(payload: CoverPreviewRequest) -> Path:
         run_label = paragraph.add_run(f"{label}: ")
         run_label.font.bold = True
         paragraph.add_run(value)
+
+    filename = f"{uuid.uuid4().hex}.docx"
+    output_path = docx_dir / filename
+    document.save(str(output_path))
+    return output_path
+
+
+def _parse_html_to_docx(document: Document, html_content: str):
+    """Parse HTML content and add it to a DOCX document with formatting."""
+    try:
+        tree = lxml_html.fromstring(html_content)
+    except Exception:
+        # If parsing fails, add as plain text
+        document.add_paragraph(html_content)
+        return
+
+    def process_element(element, parent_paragraph=None):
+        tag = element.tag.lower() if hasattr(element, 'tag') else None
+        text = element.text or ''
+        tail = element.tail or ''
+
+        if tag == 'h4':
+            p = document.add_paragraph(text, style='Heading 4')
+            p.runs[0].font.size = Pt(14)
+            p.runs[0].font.bold = True
+        elif tag == 'h5':
+            p = document.add_paragraph(text, style='Heading 5')
+            p.runs[0].font.size = Pt(12)
+            p.runs[0].font.bold = True
+        elif tag == 'h6':
+            p = document.add_paragraph(text, style='Heading 6')
+            p.runs[0].font.size = Pt(11)
+            p.runs[0].font.bold = True
+        elif tag == 'p':
+            p = document.add_paragraph()
+            if text:
+                run = p.add_run(text)
+                # Apply styling from element attributes
+                style_attr = element.get('style', '')
+                if 'color' in style_attr:
+                    color_match = re.search(r'color:\s*#([0-9A-Fa-f]{6})', style_attr)
+                    if color_match:
+                        color_hex = color_match.group(1)
+                        run.font.color.rgb = RGBColor(
+                            int(color_hex[0:2], 16),
+                            int(color_hex[2:4], 16),
+                            int(color_hex[4:6], 16)
+                        )
+            for child in element:
+                process_inline_element(child, p)
+        elif tag == 'div':
+            if text.strip():
+                document.add_paragraph(text)
+            for child in element:
+                process_element(child)
+        elif tag in ['strong', 'b', 'em', 'i', 'u', 'span', 'code']:
+            # These should be processed inline
+            if parent_paragraph:
+                run = parent_paragraph.add_run(text)
+                apply_inline_formatting(run, tag, element)
+        else:
+            # Default: add as paragraph
+            if text.strip():
+                document.add_paragraph(text)
+            for child in element:
+                process_element(child)
+
+        # Process tail text (text after the closing tag)
+        if tail.strip() and parent_paragraph:
+            parent_paragraph.add_run(tail)
+
+    def process_inline_element(element, paragraph):
+        tag = element.tag.lower() if hasattr(element, 'tag') else None
+        text = element.text or ''
+        tail = element.tail or ''
+
+        if text:
+            run = paragraph.add_run(text)
+            apply_inline_formatting(run, tag, element)
+
+        for child in element:
+            process_inline_element(child, paragraph)
+
+        if tail:
+            paragraph.add_run(tail)
+
+    def apply_inline_formatting(run, tag, element):
+        if tag in ['strong', 'b']:
+            run.font.bold = True
+        elif tag in ['em', 'i']:
+            run.font.italic = True
+        elif tag == 'u':
+            run.font.underline = True
+        elif tag == 'code':
+            run.font.name = 'Courier New'
+            run.font.size = Pt(10)
+        
+        # Apply color from style attribute
+        style_attr = element.get('style', '')
+        if 'color' in style_attr:
+            color_match = re.search(r'color:\s*#([0-9A-Fa-f]{6})', style_attr)
+            if color_match:
+                color_hex = color_match.group(1)
+                run.font.color.rgb = RGBColor(
+                    int(color_hex[0:2], 16),
+                    int(color_hex[2:4], 16),
+                    int(color_hex[4:6], 16)
+                )
+
+    # Process all top-level elements
+    if hasattr(tree, 'tag'):
+        process_element(tree)
+    else:
+        for child in tree:
+            process_element(child)
+
+
+def _build_sfr_document(payload: SfrPreviewRequest) -> Path:
+    """Build a DOCX document from SFR HTML content."""
+    docx_dir = get_user_docx_dir(payload.user_id, create=True)
+
+    # Clear previous previews for the user
+    for existing in docx_dir.glob("*.docx"):
+        existing.unlink(missing_ok=True)
+
+    document = Document()
+    section = document.sections[0]
+    section.page_height = Mm(297)
+    section.page_width = Mm(210)
+    section.top_margin = Mm(20)
+    section.bottom_margin = Mm(20)
+    section.left_margin = Mm(25)
+    section.right_margin = Mm(25)
+
+    # Parse and add HTML content
+    _parse_html_to_docx(document, payload.sfr_html)
+
+    filename = f"{uuid.uuid4().hex}.docx"
+    output_path = docx_dir / filename
+    document.save(str(output_path))
+    return output_path
+
+
+def _build_sar_document(payload: SarPreviewRequest) -> Path:
+    """Build a DOCX document from SAR HTML content."""
+    docx_dir = get_user_docx_dir(payload.user_id, create=True)
+
+    # Clear previous previews for the user
+    for existing in docx_dir.glob("*.docx"):
+        existing.unlink(missing_ok=True)
+
+    document = Document()
+    section = document.sections[0]
+    section.page_height = Mm(297)
+    section.page_width = Mm(210)
+    section.top_margin = Mm(20)
+    section.bottom_margin = Mm(20)
+    section.left_margin = Mm(25)
+    section.right_margin = Mm(25)
+
+    # Parse and add HTML content
+    _parse_html_to_docx(document, payload.sar_html)
 
     filename = f"{uuid.uuid4().hex}.docx"
     output_path = docx_dir / filename
@@ -657,6 +837,44 @@ async def cleanup_cover_images(user_id: str):
 async def cleanup_cover_preview(user_id: str):
     """Delete generated cover preview documents for a user session."""
 
+    docx_dir = get_user_docx_dir(user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.post("/sfr/preview")
+async def generate_sfr_preview(payload: SfrPreviewRequest):
+    """Generate a DOCX preview for Security Functional Requirements."""
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_sfr_document(payload)
+    return {"path": f"/cover/docx/{payload.user_id}/{output_path.name}"}
+
+
+@app.delete("/sfr/preview/{user_id}")
+async def cleanup_sfr_preview(user_id: str):
+    """Delete generated SFR preview documents for a user session."""
+    docx_dir = get_user_docx_dir(user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.post("/sar/preview")
+async def generate_sar_preview(payload: SarPreviewRequest):
+    """Generate a DOCX preview for Security Assurance Requirements."""
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_sar_document(payload)
+    return {"path": f"/cover/docx/{payload.user_id}/{output_path.name}"}
+
+
+@app.delete("/sar/preview/{user_id}")
+async def cleanup_sar_preview(user_id: str):
+    """Delete generated SAR preview documents for a user session."""
     docx_dir = get_user_docx_dir(user_id, create=False)
     if docx_dir.exists():
         shutil.rmtree(docx_dir)

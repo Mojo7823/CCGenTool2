@@ -20,6 +20,20 @@
           >
             Clear Data
           </button>
+          <button
+            class="btn"
+            @click="openPreviewModal"
+            :disabled="sarList.length === 0"
+            title="Preview Security Assurance Requirements"
+          >
+            Preview
+          </button>
+          <div class="eal-selector-inline">
+            <label for="ealLevel">EAL:</label>
+            <select id="ealLevel" v-model="selectedEal" class="eal-select">
+              <option v-for="option in ealOptions" :key="option" :value="option">{{ option }}</option>
+            </select>
+          </div>
         </div>
       </div>
       
@@ -47,32 +61,6 @@
           </tbody>
         </table>
       </div>
-    </div>
-
-    <!-- Resizable Separator -->
-    <div class="separator-container">
-      <div 
-        class="resizable-separator"
-        @mousedown="startResize"
-        title="Drag to resize"
-      >
-        <div class="separator-line"></div>
-        <div class="separator-handle">⋮⋮⋮</div>
-      </div>
-    </div>
-
-    <!-- Preview Section -->
-    <div class="sar-preview-section" ref="previewSection">
-      <div class="sar-preview-header">
-        <h3>Security Assurance Requirement Preview</h3>
-        <div class="eal-selector">
-          <label for="ealLevel">Evaluation Assurance Level:</label>
-          <select id="ealLevel" v-model="selectedEal" class="eal-select">
-            <option v-for="option in ealOptions" :key="option" :value="option">{{ option }}</option>
-          </select>
-        </div>
-      </div>
-      <div class="sar-preview-content" v-html="selectedSarPreview"></div>
     </div>
 
     <!-- Add SAR Modal -->
@@ -231,11 +219,36 @@
         </div>
       </div>
     </div>
+
+    <!-- Preview Modal -->
+    <div v-if="showPreviewModal" class="modal-overlay" @click="closePreviewModal">
+      <div class="modal-content preview-modal" @click.stop>
+        <div class="modal-header">
+          <h3>Security Assurance Requirement Preview</h3>
+          <button class="modal-close" type="button" @click="closePreviewModal">&times;</button>
+        </div>
+        <div class="preview-modal-body docx-modal-body">
+          <div class="docx-preview-shell">
+            <div v-if="previewLoading" class="modal-status overlay">Generating preview…</div>
+            <div v-else-if="previewError" class="modal-error">{{ previewError }}</div>
+            <div
+              ref="docxPreviewContainer"
+              class="docx-preview-container"
+              :class="{ hidden: previewLoading || !!previewError }"
+            ></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" type="button" @click="closePreviewModal">Close</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch, computed } from 'vue'
+import { ref, onMounted, nextTick, watch, computed, onBeforeUnmount } from 'vue'
+import { renderAsync } from 'docx-preview'
 import api from '../services/api'
 import { sessionService } from '../services/sessionService'
 
@@ -326,6 +339,7 @@ const formatAssuranceComponent = (sar: SarEntry) =>
 // Modal state
 const showAddModal = ref(false)
 const showCustomModal = ref(false)
+const showPreviewModal = ref(false)
 const editingMode = ref<SarSource | null>(null)
 const editingSarId = ref<number | null>(null)
 
@@ -364,9 +378,13 @@ const customComponentInput = ref('')
 const sarList = ref<SarEntry[]>([])
 const selectedSarId = ref<number | null>(null)
 const selectedSarPreview = ref('')
-const previewSection = ref<HTMLDivElement | null>(null)
-const isResizing = ref(false)
 const nextSarId = ref(1)
+
+// Preview modal state
+const previewLoading = ref(false)
+const previewError = ref('')
+const docxPreviewContainer = ref<HTMLDivElement | null>(null)
+const generatedDocxPath = ref('')
 
 // Session management
 const userToken = ref(sessionService.getUserToken())
@@ -1032,6 +1050,96 @@ const removeSAR = () => {
   }
 }
 
+const openPreviewModal = async () => {
+  updatePreviewForAllSars()
+  
+  // Clean up any previous preview
+  cleanupDocx()
+  
+  previewError.value = ''
+  showPreviewModal.value = true
+  previewLoading.value = true
+
+  try {
+    const payload = {
+      user_id: userToken.value,
+      sar_html: selectedSarPreview.value,
+      eal_level: selectedEal.value,
+    }
+
+    const response = await api.post('/sar/preview', payload)
+    const path: string | undefined = response.data?.path
+
+    if (!path) {
+      throw new Error('Preview generation did not return a document path.')
+    }
+
+    generatedDocxPath.value = path
+    await nextTick()
+    await renderDocxPreview(path)
+  } catch (error: any) {
+    const message = error?.response?.data?.detail || error?.message || 'Unable to generate preview.'
+    previewError.value = message
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+const closePreviewModal = () => {
+  showPreviewModal.value = false
+  if (!previewLoading.value) {
+    previewError.value = ''
+  }
+  cleanupDocx()
+}
+
+async function renderDocxPreview(path: string) {
+  if (!docxPreviewContainer.value) return
+
+  try {
+    docxPreviewContainer.value.innerHTML = ''
+    const response = await api.get(path, { responseType: 'arraybuffer' })
+    const buffer = response.data as ArrayBuffer
+    await renderAsync(buffer, docxPreviewContainer.value, undefined, {
+      className: 'docx-rendered',
+      inWrapper: true,
+      ignoreWidth: false,
+      ignoreHeight: false,
+      useBase64URL: true,
+    })
+  } catch (error: any) {
+    const message = error?.message || 'Failed to render DOCX preview.'
+    previewError.value = message
+  }
+}
+
+function cleanupDocx() {
+  if (!generatedDocxPath.value || !userToken.value) return
+  api.delete(`/sar/preview/${userToken.value}`).catch(() => {
+    // Silently ignore cleanup errors
+  })
+  generatedDocxPath.value = ''
+}
+
+function handleBeforeUnload() {
+  cleanupDocx()
+}
+
+function handlePageHide() {
+  cleanupDocx()
+}
+
+onBeforeUnmount(() => {
+  cleanupDocx()
+  removeEventListeners()
+})
+
+function removeEventListeners() {
+  if (typeof window === 'undefined') return
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('pagehide', handlePageHide)
+}
+
 const saveSessionData = () => {
   if (isRestoringSession) {
     return
@@ -1164,36 +1272,6 @@ const editSelectedSar = async () => {
   }
 }
 
-const startResize = (event: MouseEvent) => {
-  isResizing.value = true
-  document.addEventListener('mousemove', handleResize)
-  document.addEventListener('mouseup', stopResize)
-  event.preventDefault()
-}
-
-const handleResize = (event: MouseEvent) => {
-  if (!isResizing.value) return
-
-  const container = document.querySelector('.sar-container') as HTMLElement | null
-  if (!container) return
-
-  const rect = container.getBoundingClientRect()
-  const newHeight = event.clientY - rect.top - 100
-
-  if (newHeight > 150 && newHeight < window.innerHeight - 300) {
-    const tableSection = document.querySelector('.sar-table-section') as HTMLElement | null
-    if (tableSection) {
-      tableSection.style.height = `${newHeight}px`
-    }
-  }
-}
-
-const stopResize = () => {
-  isResizing.value = false
-  document.removeEventListener('mousemove', handleResize)
-  document.removeEventListener('mouseup', stopResize)
-}
-
 watch(selectedEal, () => {
   if (isRestoringSession) {
     return
@@ -1216,6 +1294,11 @@ watch(showCustomModal, value => {
 })
 
 onMounted(async () => {
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('pagehide', handlePageHide)
+  }
+
   loadSessionData()
 
   try {
@@ -1247,9 +1330,9 @@ onMounted(async () => {
 
 .sar-table-section {
   min-height: 300px;
-  height: 45vh;
+  flex: 1;
   border: 1px solid #374151;
-  border-radius: 8px 8px 0 0;
+  border-radius: 8px;
   background: var(--panel);
   display: flex;
   flex-direction: column;
@@ -1274,6 +1357,44 @@ onMounted(async () => {
 .table-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.eal-selector-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid #374151;
+}
+
+.eal-selector-inline label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.eal-select {
+  padding: 6px 10px;
+  background: var(--bg);
+  border: 1px solid #374151;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.eal-select:hover {
+  border-color: var(--primary);
+}
+
+.eal-select:focus {
+  border-color: var(--primary);
 }
 
 .sar-table-container {
@@ -1884,5 +2005,81 @@ onMounted(async () => {
 .selected-class-display.placeholder {
   color: var(--text-muted);
   font-style: italic;
+}
+
+/* Preview Modal Styles */
+.preview-modal {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-width: 960px;
+  width: 95vw;
+  max-height: 90vh;
+  overflow: hidden;
+}
+
+.preview-modal .modal-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid #374151;
+  background: var(--bg-soft);
+}
+
+.preview-modal-body {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.docx-modal-body {
+  padding: 20px;
+  background: #525659;
+  overflow: auto;
+}
+
+.docx-preview-shell {
+  position: relative;
+  min-height: 400px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.docx-preview-container {
+  background: white;
+  padding: 20px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.docx-preview-container.hidden {
+  display: none;
+}
+
+.modal-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.modal-status.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 10;
+  color: white;
+}
+
+.modal-error {
+  padding: 20px;
+  background: #fee;
+  border: 1px solid #fcc;
+  border-radius: 4px;
+  color: #c00;
+  text-align: center;
 }
 </style>

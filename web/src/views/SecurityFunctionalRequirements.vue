@@ -220,8 +220,16 @@
           <h3>Security Functional Requirement Preview</h3>
           <button class="modal-close" type="button" @click="closePreviewModal">&times;</button>
         </div>
-        <div class="preview-modal-body">
-          <div class="preview-modal-scroll" v-html="selectedSfrPreview"></div>
+        <div class="preview-modal-body docx-modal-body">
+          <div class="docx-preview-shell">
+            <div v-if="previewLoading" class="modal-status overlay">Generating preview…</div>
+            <div v-else-if="previewError" class="modal-error">{{ previewError }}</div>
+            <div
+              ref="docxPreviewContainer"
+              class="docx-preview-container"
+              :class="{ hidden: previewLoading || !!previewError }"
+            ></div>
+          </div>
         </div>
         <div class="modal-footer">
           <button class="btn" type="button" @click="closePreviewModal">Close</button>
@@ -232,7 +240,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch, computed } from 'vue'
+import { ref, onMounted, nextTick, watch, computed, onBeforeUnmount } from 'vue'
+import { renderAsync } from 'docx-preview'
 import api from '../services/api'
 import { sessionService } from '../services/sessionService'
 
@@ -322,6 +331,12 @@ const sfrList = ref<SfrEntry[]>([])
 const selectedSfrId = ref<number | null>(null)
 const selectedSfrPreview = ref('')
 const nextSfrId = ref(1)
+
+// Preview modal state
+const previewLoading = ref(false)
+const previewError = ref('')
+const docxPreviewContainer = ref<HTMLDivElement | null>(null)
+const generatedDocxPath = ref('')
 
 // Session management
 const userToken = ref(sessionService.getUserToken())
@@ -946,13 +961,93 @@ const removeSFR = () => {
   }
 }
 
-const openPreviewModal = () => {
+const openPreviewModal = async () => {
   updatePreviewForAllSfrs()
+  
+  // Clean up any previous preview
+  cleanupDocx()
+  
+  previewError.value = ''
   showPreviewModal.value = true
+  previewLoading.value = true
+
+  try {
+    const payload = {
+      user_id: userToken.value,
+      sfr_html: selectedSfrPreview.value,
+    }
+
+    const response = await api.post('/sfr/preview', payload)
+    const path: string | undefined = response.data?.path
+
+    if (!path) {
+      throw new Error('Preview generation did not return a document path.')
+    }
+
+    generatedDocxPath.value = path
+    await nextTick()
+    await renderDocxPreview(path)
+  } catch (error: any) {
+    const message = error?.response?.data?.detail || error?.message || 'Unable to generate preview.'
+    previewError.value = message
+  } finally {
+    previewLoading.value = false
+  }
 }
 
 const closePreviewModal = () => {
   showPreviewModal.value = false
+  if (!previewLoading.value) {
+    previewError.value = ''
+  }
+  cleanupDocx()
+}
+
+async function renderDocxPreview(path: string) {
+  if (!docxPreviewContainer.value) return
+
+  try {
+    docxPreviewContainer.value.innerHTML = ''
+    const response = await api.get(path, { responseType: 'arraybuffer' })
+    const buffer = response.data as ArrayBuffer
+    await renderAsync(buffer, docxPreviewContainer.value, undefined, {
+      className: 'docx-rendered',
+      inWrapper: true,
+      ignoreWidth: false,
+      ignoreHeight: false,
+      useBase64URL: true,
+    })
+  } catch (error: any) {
+    const message = error?.message || 'Failed to render DOCX preview.'
+    previewError.value = message
+  }
+}
+
+function cleanupDocx() {
+  if (!generatedDocxPath.value || !userToken.value) return
+  api.delete(`/sfr/preview/${userToken.value}`).catch(() => {
+    // Silently ignore cleanup errors
+  })
+  generatedDocxPath.value = ''
+}
+
+function handleBeforeUnload() {
+  cleanupDocx()
+}
+
+function handlePageHide() {
+  cleanupDocx()
+}
+
+onBeforeUnmount(() => {
+  cleanupDocx()
+  removeEventListeners()
+})
+
+function removeEventListeners() {
+  if (typeof window === 'undefined') return
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('pagehide', handlePageHide)
 }
 
 const saveSessionData = () => {
@@ -1119,6 +1214,11 @@ watch(showCustomModal, value => {
 })
 
 onMounted(async () => {
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('pagehide', handlePageHide)
+  }
+
   loadSessionData()
 
   try {
@@ -1292,6 +1392,59 @@ onMounted(async () => {
   background: var(--panel);
   min-height: 60vh;
   line-height: 1.6;
+}
+
+.docx-modal-body {
+  padding: 20px;
+  background: #525659;
+  overflow: auto;
+}
+
+.docx-preview-shell {
+  position: relative;
+  min-height: 400px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.docx-preview-container {
+  background: white;
+  padding: 20px;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.docx-preview-container.hidden {
+  display: none;
+}
+
+.modal-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.modal-status.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 10;
+  color: white;
+}
+
+.modal-error {
+  padding: 20px;
+  background: #fee;
+  border: 1px solid #fcc;
+  border-radius: 4px;
+  color: #c00;
+  text-align: center;
 }
 
 .preview-modal-scroll h4 {
