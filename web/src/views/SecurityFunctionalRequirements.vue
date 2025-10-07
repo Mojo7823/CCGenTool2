@@ -13,6 +13,13 @@
           <button class="btn info" @click="editSelectedSfr" :disabled="!selectedSfrId">Edit Data</button>
           <button class="btn danger" @click="removeSFR" :disabled="!selectedSfrId">Remove SFR</button>
           <button
+            class="btn primary"
+            @click="openPreviewModal"
+            :disabled="sfrList.length === 0"
+          >
+            Preview
+          </button>
+          <button
             class="btn warning"
             @click="clearSessionData"
             :disabled="sfrList.length === 0"
@@ -49,26 +56,6 @@
       </div>
     </div>
 
-    <!-- Resizable Separator -->
-    <div class="separator-container">
-      <div 
-        class="resizable-separator"
-        @mousedown="startResize"
-        title="Drag to resize"
-      >
-        <div class="separator-line"></div>
-        <div class="separator-handle">⋮⋮⋮</div>
-      </div>
-    </div>
-
-    <!-- Preview Section -->
-    <div class="sfr-preview-section" ref="previewSection">
-      <div class="sfr-preview-header">
-        <h3>Security Functional Requirement Preview</h3>
-      </div>
-      <div class="sfr-preview-content" v-html="selectedSfrPreview"></div>
-    </div>
-
     <!-- Add SFR Modal -->
     <div v-if="showAddModal" class="modal-overlay" @click="closeModal">
       <div class="modal-content" @click.stop>
@@ -83,7 +70,7 @@
               ref="searchInput"
               v-model="searchQuery"
               @input="onSearchInput"
-              @focus="openSearchDropdown"
+              @focus="handleSearchFocus"
               @blur="handleSearchBlur"
               @keydown="handleSearchKeydown"
               type="text"
@@ -225,6 +212,19 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showPreviewModal" class="modal-overlay" @click="closePreviewModal">
+      <div class="modal-content preview-modal" @click.stop>
+        <div class="preview-modal-header">
+          <h3>Security Functional Requirement Preview</h3>
+          <button class="modal-close" type="button" @click="closePreviewModal">&times;</button>
+        </div>
+        <div class="preview-modal-body" v-html="selectedSfrPreview"></div>
+        <div class="modal-actions">
+          <button class="btn" @click="closePreviewModal">Close</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -256,6 +256,8 @@ type SfrSource = 'database' | 'custom'
 
 interface SfrMetadata {
   classLabel?: string
+  classDescription?: string
+  componentKey?: string
   customClassInput?: string
   customComponentInput?: string
 }
@@ -312,8 +314,7 @@ const customComponentInput = ref('')
 const sfrList = ref<SfrEntry[]>([])
 const selectedSfrId = ref<number | null>(null)
 const selectedSfrPreview = ref('')
-const previewSection = ref<HTMLDivElement | null>(null)
-const isResizing = ref(false)
+const showPreviewModal = ref(false)
 const nextSfrId = ref(1)
 
 // Session management
@@ -395,6 +396,8 @@ const parseCustomComponentInput = (input: string) => {
     display
   }
 }
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 // Predefined template for SFR preview
 const getSfrTemplate = () => {
@@ -480,7 +483,10 @@ const onSearchInput = () => {
   searchDropdownVisible.value = true
 }
 
-const openSearchDropdown = () => {
+const handleSearchFocus = () => {
+  if (searchQuery.value.trim()) {
+    searchQuery.value = ''
+  }
   filterSfrData()
   searchDropdownVisible.value = true
 }
@@ -630,7 +636,8 @@ const onComponentChange = async () => {
 
     for (const item of componentData) {
       if (item.element && item.element_item) {
-        content += `<p><strong>${item.element}</strong> ${item.element_item}</p>`
+        const elementCode = item.element.toUpperCase()
+        content += `<p><strong>${elementCode}</strong> ${item.element_item}</p>`
 
         try {
           const elementResponse = await api.get(`/element-lists/formatted/${item.element}`)
@@ -718,25 +725,39 @@ const finalizeSFR = async () => {
     return
   }
 
+  const editingId = editingMode.value === 'database' && editingSfrId.value !== null ? editingSfrId.value : null
+  const normalizedComponentId = selectedComponent.value.toUpperCase()
+
+  const duplicate = sfrList.value.some(sfr =>
+    sfr.id !== editingId && sfr.componentId.toUpperCase() === normalizedComponentId
+  )
+
+  if (duplicate) {
+    alert('This SFR component has already been added.')
+    return
+  }
+
   const entry: SfrEntry = {
-    id: editingMode.value === 'database' && editingSfrId.value !== null ? editingSfrId.value : nextSfrId.value++,
+    id: editingId !== null ? editingId : nextSfrId.value++,
     className: classMeta.display,
     classCode: classMeta.code,
-    componentId: selectedComponent.value,
+    componentId: normalizedComponentId,
     componentName: selectedComponentObj.component_name,
     previewContent: previewContent.value,
     originalClass: selectedClass.value,
     source: 'database',
     metadata: {
-      classLabel: classMeta.display
+      classLabel: classMeta.display,
+      classDescription: classMeta.description,
+      componentKey: selectedComponent.value
     }
   }
 
-  if (editingMode.value === 'database' && editingSfrId.value !== null) {
-    const index = sfrList.value.findIndex(item => item.id === editingSfrId.value)
+  if (editingId !== null) {
+    const index = sfrList.value.findIndex(item => item.id === editingId)
     if (index !== -1) {
       sfrList.value[index] = { ...entry }
-      selectedSfrId.value = editingSfrId.value
+      selectedSfrId.value = editingId
     }
   } else {
     sfrList.value.push(entry)
@@ -757,27 +778,40 @@ const finalizeCustomSFR = () => {
   const classMeta = parseCustomClassInput(customClassInput.value)
   const componentMeta = parseCustomComponentInput(customComponentInput.value)
 
+  const editingId = editingMode.value === 'custom' && editingSfrId.value !== null ? editingSfrId.value : null
+  const normalizedComponentId = componentMeta.id.toUpperCase()
+
+  const duplicate = sfrList.value.some(sfr =>
+    sfr.id !== editingId && sfr.componentId.toUpperCase() === normalizedComponentId
+  )
+
+  if (duplicate) {
+    alert('This SFR component has already been added.')
+    return
+  }
+
   const entry: SfrEntry = {
-    id: editingMode.value === 'custom' && editingSfrId.value !== null ? editingSfrId.value : nextSfrId.value++,
+    id: editingId !== null ? editingId : nextSfrId.value++,
     className: classMeta.display,
     classCode: classMeta.code,
-    componentId: componentMeta.id,
+    componentId: normalizedComponentId,
     componentName: componentMeta.name,
     previewContent: customPreviewContent.value,
     originalClass: classMeta.raw,
     source: 'custom',
     metadata: {
       classLabel: classMeta.display,
+      classDescription: classMeta.description,
       customClassInput: classMeta.raw,
       customComponentInput: componentMeta.display
     }
   }
 
-  if (editingMode.value === 'custom' && editingSfrId.value !== null) {
-    const index = sfrList.value.findIndex(item => item.id === editingSfrId.value)
+  if (editingId !== null) {
+    const index = sfrList.value.findIndex(item => item.id === editingId)
     if (index !== -1) {
       sfrList.value[index] = { ...entry }
-      selectedSfrId.value = editingSfrId.value
+      selectedSfrId.value = editingId
     }
   } else {
     sfrList.value.push(entry)
@@ -795,6 +829,15 @@ const selectSfr = (sfrId: number) => {
   saveSessionData()
 }
 
+const openPreviewModal = () => {
+  updatePreviewForAllSfrs()
+  showPreviewModal.value = true
+}
+
+const closePreviewModal = () => {
+  showPreviewModal.value = false
+}
+
 const updatePreviewForAllSfrs = () => {
   const template = getSfrTemplate()
 
@@ -803,12 +846,13 @@ const updatePreviewForAllSfrs = () => {
     return
   }
 
-  const sfrsByClass: Record<string, { className: string; sfrs: SfrEntry[] }> = {}
+  const sfrsByClass: Record<string, { label: string; description: string; sfrs: SfrEntry[] }> = {}
   sfrList.value.forEach(sfr => {
-    const key = sfr.classCode || 'UNKNOWN'
+    const key = (sfr.classCode || 'UNKNOWN').toUpperCase()
     if (!sfrsByClass[key]) {
       sfrsByClass[key] = {
-        className: sfr.className,
+        label: sfr.metadata?.classLabel || sfr.className || key,
+        description: sfr.metadata?.classDescription || '',
         sfrs: []
       }
     }
@@ -820,15 +864,19 @@ const updatePreviewForAllSfrs = () => {
 
   Object.keys(sfrsByClass).forEach(classCode => {
     const classData = sfrsByClass[classCode]
+    const safeClassCode = escapeRegExp(classCode)
+    const description = classData.description ||
+      classData.label.replace(new RegExp(`^${safeClassCode}:?\\s*`, 'i'), '').trim()
+    const headingText = description ? `${classCode}: ${description}` : classCode
 
     allSfrSections += `
-<h5>5.1.${classIndex} ${classCode}: ${classData.className}</h5>
+<h5>5.1.${classIndex} ${headingText}</h5>
 `
 
     let componentIndex = 1
     classData.sfrs.forEach(sfr => {
       const componentTitle = sfr.componentName
-        ? `${sfr.componentId} : ${sfr.componentName}`
+        ? `${sfr.componentId}: ${sfr.componentName}`
         : sfr.componentId
       allSfrSections += `
 <h6>5.1.${classIndex}.${componentIndex} ${componentTitle}</h6>
@@ -889,9 +937,25 @@ const loadSessionData = () => {
   if (sessionData) {
     sfrList.value = (sessionData.sfrList || []).map((item: any) => {
       const source: SfrSource = item.source === 'custom' ? 'custom' : 'database'
-      const metadata: SfrMetadata = item.metadata || {}
+      const rawMetadata: SfrMetadata = item.metadata || {}
+      const normalizedComponentId = typeof item.componentId === 'string'
+        ? item.componentId.toUpperCase()
+        : ''
+      const metadata: SfrMetadata = {
+        ...rawMetadata
+      }
+
+      if (!metadata.componentKey && typeof item.componentId === 'string') {
+        metadata.componentKey = item.componentId
+      }
+
+      if (!metadata.classLabel && typeof item.className === 'string') {
+        metadata.classLabel = item.className
+      }
+
       return {
         ...item,
+        componentId: normalizedComponentId,
         source,
         classCode: deriveClassCodeForEntry({ ...item, source }),
         metadata
@@ -946,7 +1010,7 @@ const editSelectedSfr = async () => {
       await onClassChange({ preservePreview: true })
     }
 
-    selectedComponent.value = sfr.componentId
+    selectedComponent.value = sfr.metadata?.componentKey ?? sfr.componentId
     filteredUniqueComponents.value = [...uniqueComponents.value]
     previewContent.value = sfr.previewContent
     await nextTick()
@@ -970,36 +1034,6 @@ const editSelectedSfr = async () => {
       customPreviewEditor.value.focus()
     }
   }
-}
-
-const startResize = (event: MouseEvent) => {
-  isResizing.value = true
-  document.addEventListener('mousemove', handleResize)
-  document.addEventListener('mouseup', stopResize)
-  event.preventDefault()
-}
-
-const handleResize = (event: MouseEvent) => {
-  if (!isResizing.value) return
-
-  const container = document.querySelector('.sfr-container') as HTMLElement | null
-  if (!container) return
-
-  const rect = container.getBoundingClientRect()
-  const newHeight = event.clientY - rect.top - 100
-
-  if (newHeight > 150 && newHeight < window.innerHeight - 300) {
-    const tableSection = document.querySelector('.sfr-table-section') as HTMLElement | null
-    if (tableSection) {
-      tableSection.style.height = `${newHeight}px`
-    }
-  }
-}
-
-const stopResize = () => {
-  isResizing.value = false
-  document.removeEventListener('mousemove', handleResize)
-  document.removeEventListener('mouseup', stopResize)
 }
 
 watch(showAddModal, value => {
@@ -1135,129 +1169,6 @@ onMounted(async () => {
   padding: 40px;
 }
 
-.separator-container {
-  height: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
-  border-left: 1px solid #374151;
-  border-right: 1px solid #374151;
-  position: relative;
-}
-
-.resizable-separator {
-  width: 100%;
-  height: 10px;
-  cursor: ns-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-soft);
-  position: relative;
-}
-
-.separator-line {
-  width: 100%;
-  height: 2px;
-  background: #374151;
-}
-
-.separator-handle {
-  position: absolute;
-  color: #6B7280;
-  font-size: 10px;
-  letter-spacing: -1px;
-  background: var(--bg-soft);
-  padding: 0 8px;
-}
-
-.resizable-separator:hover {
-  background: var(--primary);
-}
-
-.resizable-separator:hover .separator-handle {
-  color: white;
-}
-
-.sfr-preview-section {
-  flex: 1;
-  min-height: 300px;
-  border: 1px solid #374151;
-  border-radius: 0 0 8px 8px;
-  border-top: none;
-  background: var(--panel);
-  display: flex;
-  flex-direction: column;
-}
-
-.sfr-preview-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid #374151;
-  background: var(--bg-soft);
-}
-
-.sfr-preview-header h3 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.sfr-preview-content {
-  flex: 1;
-  padding: 20px;
-  overflow: auto;
-  background: var(--bg);
-  border-radius: 0 0 8px 8px;
-  line-height: 1.6;
-}
-
-.sfr-preview-content h4 {
-  color: var(--text-bright);
-  margin-top: 0;
-  margin-bottom: 16px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.sfr-preview-content h5 {
-  color: var(--text-bright);
-  margin-top: 24px;
-  margin-bottom: 12px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.sfr-preview-content h6 {
-  color: var(--text-bright);
-  margin-top: 20px;
-  margin-bottom: 10px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.sfr-preview-content p {
-  margin-bottom: 12px;
-  color: var(--text);
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.sfr-preview-content strong {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-weight: 600;
-  color: var(--text-bright);
-}
-
-.sfr-preview-content em {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-style: italic;
-}
-
 .btn.danger {
   background: #DC2626;
   color: white;
@@ -1342,6 +1253,88 @@ onMounted(async () => {
   max-width: 800px;
   max-height: 90vh;
   overflow-y: auto;
+}
+
+.preview-modal {
+  max-width: 960px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.preview-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.preview-modal-header h3 {
+  margin: 0;
+}
+
+.modal-close {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.preview-modal-body {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 20px;
+  line-height: 1.6;
+}
+
+.preview-modal-body h4 {
+  color: var(--text-bright);
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.preview-modal-body h5 {
+  color: var(--text-bright);
+  margin-top: 24px;
+  margin-bottom: 12px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.preview-modal-body h6 {
+  color: var(--text-bright);
+  margin-top: 20px;
+  margin-bottom: 10px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.preview-modal-body p {
+  margin-bottom: 12px;
+  color: var(--text);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.preview-modal-body strong {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.preview-modal-body em {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-style: italic;
 }
 
 .form-group {

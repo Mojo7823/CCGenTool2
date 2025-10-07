@@ -512,6 +512,39 @@ async def upload_cover_image(
     return {"path": f"/cover/uploads/{user_id}/{filename}"}
 
 
+@app.post("/cover/docx")
+async def upload_cover_docx(
+    user_id: str = Query(..., alias="user_id"),
+    file: UploadFile = File(...),
+):
+    """Persist a generated DOCX preview for the cover page."""
+
+    user_dir = get_user_upload_dir(user_id, create=True)
+
+    allowed_types = {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/octet-stream",
+    }
+
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Only DOCX files are accepted for preview.")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Uploaded DOCX file is empty.")
+
+    for existing in user_dir.glob("*.docx"):
+        if existing.is_file():
+            existing.unlink()
+
+    filename = f"{uuid.uuid4().hex}.docx"
+    destination = user_dir / filename
+    with destination.open("wb") as buffer:
+        buffer.write(data)
+
+    return {"path": f"/cover/uploads/{user_id}/{filename}"}
+
+
 @app.delete("/cover/upload/{user_id}")
 async def cleanup_cover_images(user_id: str):
     """Delete all temporary cover images associated with a user session."""

@@ -78,40 +78,15 @@
     </div>
 
     <div v-if="showPreview" class="modal-overlay" @click.self="closePreview">
-      <div class="modal-card">
+      <div class="modal-card docx-modal">
         <header class="modal-header">
           <h2>Cover Preview</h2>
           <button class="modal-close" type="button" @click="closePreview">&times;</button>
         </header>
-        <section class="modal-body">
-          <div class="modal-image" v-if="imageUrl">
-            <img :src="imageUrl" alt="Cover preview" />
-          </div>
-          <div v-else class="modal-placeholder">
-            <span>No cover image uploaded.</span>
-          </div>
-          <div class="modal-details">
-            <h3>{{ form.title || 'Security Target Title' }}</h3>
-            <p class="modal-description">{{ form.description || 'Additional description will appear here.' }}</p>
-            <dl>
-              <div>
-                <dt>Version</dt>
-                <dd>{{ form.version || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Revision</dt>
-                <dd>{{ form.revision || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Manufacturer/Laboratory</dt>
-                <dd>{{ form.manufacturer || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Date</dt>
-                <dd>{{ formattedDate }}</dd>
-              </div>
-            </dl>
-          </div>
+        <section class="modal-body docx-modal-body">
+          <div v-if="previewLoading" class="docx-status">Generating DOCX preview...</div>
+          <div v-else-if="previewError" class="docx-status error">{{ previewError }}</div>
+          <div v-else ref="docxPreviewContainer" class="docx-preview"></div>
         </section>
         <footer class="modal-footer">
           <button class="btn" type="button" @click="closePreview">Close</button>
@@ -122,7 +97,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import htmlToDocx from 'html-to-docx'
+import { renderAsync } from 'docx-preview'
 import api from '../services/api'
 
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -132,6 +109,10 @@ const uploadError = ref('')
 const uploadedImagePath = ref<string | null>(null)
 const showPreview = ref(false)
 const hasUploaded = ref(false)
+const previewLoading = ref(false)
+const previewError = ref('')
+const generatedDocxPath = ref<string | null>(null)
+const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 
 const form = reactive({
   title: '',
@@ -225,13 +206,197 @@ function handleDrop(event: DragEvent) {
   uploadFile(files[0])
 }
 
-function openPreview() {
-  if (!hasPreview.value) return
-  showPreview.value = true
-}
-
 function closePreview() {
   showPreview.value = false
+  previewError.value = ''
+  previewLoading.value = false
+  if (docxPreviewContainer.value) {
+    docxPreviewContainer.value.innerHTML = ''
+  }
+}
+
+async function fetchAsDataUrl(url: string): Promise<string | null> {
+  try {
+    const response = await fetch(url)
+    if (!response.ok) {
+      throw new Error('Unable to load cover image for preview.')
+    }
+    const blob = await response.blob()
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+      reader.onerror = () => reject(new Error('Failed to read image data.'))
+      reader.readAsDataURL(blob)
+    })
+  } catch (error) {
+    console.error(error)
+    return null
+  }
+}
+
+async function buildCoverHtml() {
+  const sections: string[] = []
+  const title = form.title || 'Security Target Title'
+  const description = form.description || 'Additional description will appear here.'
+  const version = form.version || '—'
+  const revision = form.revision || '—'
+  const manufacturer = form.manufacturer || '—'
+  const dateText = formattedDate.value
+
+  let imageBlock = ''
+  if (imageUrl.value) {
+    const dataUrl = await fetchAsDataUrl(imageUrl.value)
+    if (dataUrl) {
+      imageBlock = `
+        <div class="cover-image">
+          <img src="${dataUrl}" alt="Cover image" />
+        </div>
+      `
+    }
+  }
+
+  sections.push(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #1f2937;
+            padding: 40px;
+          }
+          .cover-container {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            align-items: center;
+            text-align: center;
+          }
+          .cover-image img {
+            max-width: 300px;
+            height: auto;
+            border-radius: 12px;
+          }
+          .cover-title {
+            font-size: 28px;
+            font-weight: 700;
+            margin: 0;
+          }
+          .cover-description {
+            font-size: 16px;
+            margin: 12px 0 24px;
+            max-width: 520px;
+          }
+          .cover-details {
+            width: 100%;
+            max-width: 520px;
+            border-top: 1px solid #d1d5db;
+          }
+          .cover-details dl {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin: 0;
+            padding: 24px 0;
+          }
+          .cover-details dt {
+            font-weight: 600;
+            text-align: left;
+          }
+          .cover-details dd {
+            margin: 0;
+            text-align: left;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="cover-container">
+          ${imageBlock}
+          <h1 class="cover-title">${title}</h1>
+          <p class="cover-description">${description}</p>
+          <div class="cover-details">
+            <dl>
+              <div>
+                <dt>Version</dt>
+                <dd>${version}</dd>
+              </div>
+              <div>
+                <dt>Revision</dt>
+                <dd>${revision}</dd>
+              </div>
+              <div>
+                <dt>Manufacturer / Laboratory</dt>
+                <dd>${manufacturer}</dd>
+              </div>
+              <div>
+                <dt>Date</dt>
+                <dd>${dateText}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </body>
+    </html>
+  `)
+
+  return sections.join('')
+}
+
+async function uploadDocx(blob: Blob) {
+  if (!userId.value) return null
+  const formData = new FormData()
+  formData.append('file', blob, 'cover-preview.docx')
+  const response = await api.post('/cover/docx', formData, {
+    params: { user_id: userId.value },
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+  generatedDocxPath.value = response.data.path
+  return api.getUri({ url: response.data.path })
+}
+
+async function renderDocxFromUrl(url: string) {
+  const response = await fetch(url, { cache: 'no-store' })
+  if (!response.ok) {
+    throw new Error('Unable to load generated DOCX preview.')
+  }
+  const buffer = await response.arrayBuffer()
+  if (docxPreviewContainer.value) {
+    docxPreviewContainer.value.innerHTML = ''
+    await renderAsync(buffer, docxPreviewContainer.value, undefined, {
+      inWrapper: true,
+      ignoreWidth: true,
+      ignoreHeight: true,
+      className: 'docx-rendered'
+    })
+  }
+}
+
+async function openPreview() {
+  if (!hasPreview.value) return
+  previewError.value = ''
+  previewLoading.value = true
+  showPreview.value = true
+
+  await nextTick()
+
+  try {
+    const html = await buildCoverHtml()
+    const buffer = await htmlToDocx(html)
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    })
+    const docxUrl = await uploadDocx(blob)
+    if (!docxUrl) {
+      throw new Error('Unable to store generated DOCX preview.')
+    }
+    await renderDocxFromUrl(docxUrl)
+  } catch (error: any) {
+    console.error('DOCX preview failed', error)
+    previewError.value = error?.message || 'Failed to build DOCX preview.'
+  } finally {
+    previewLoading.value = false
+  }
 }
 
 function removeEventListeners() {
@@ -241,11 +406,13 @@ function removeEventListeners() {
 }
 
 function cleanupUploads(keepalive = false) {
-  if (!hasUploaded.value || !userId.value) return
+  if (!userId.value) return
+  if (!hasUploaded.value && !generatedDocxPath.value) return
   const url = api.getUri({ url: `/cover/upload/${userId.value}` })
   fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
   hasUploaded.value = false
   uploadedImagePath.value = null
+  generatedDocxPath.value = null
 }
 
 function handleBeforeUnload() {
@@ -446,6 +613,47 @@ label {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.docx-modal {
+  max-width: 1000px;
+  width: min(1000px, 95vw);
+}
+
+.docx-modal-body {
+  min-height: 520px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+}
+
+.docx-preview {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 12px;
+  background: rgba(15, 23, 42, 0.55);
+  border-radius: 8px;
+}
+
+.docx-status {
+  width: 100%;
+  text-align: center;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.docx-status.error {
+  color: var(--danger);
+}
+
+.docx-rendered {
+  background: white;
+  padding: 24px;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.35);
 }
 
 .modal-image img {
