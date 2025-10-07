@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import shutil
@@ -7,7 +8,8 @@ import uuid
 from datetime import datetime
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List, Optional
+from json import JSONDecodeError
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,6 +53,10 @@ SFR_DOCX_ROOT = Path(os.getenv("SFR_DOCX_DIR", Path(tempfile.gettempdir()) / "cc
 SFR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 SAR_DOCX_ROOT = Path(os.getenv("SAR_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_sar_docx"))
 SAR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+SESSION_STORAGE_ROOT = Path(os.getenv("SESSION_STORAGE_DIR", Path(tempfile.gettempdir()) / "ccgentool2_session_data"))
+SESSION_STORAGE_ROOT.mkdir(parents=True, exist_ok=True)
+ST_INTRO_DOCX_ROOT = Path(os.getenv("ST_INTRO_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_st_intro_docx"))
+ST_INTRO_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -79,6 +85,38 @@ def get_user_docx_dir(user_id: str, *, create: bool = False) -> Path:
     return _get_preview_docx_dir(COVER_DOCX_ROOT, user_id, create=create)
 
 
+def _get_session_dir(user_id: str, *, create: bool = False) -> Path:
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+
+    session_dir = SESSION_STORAGE_ROOT / user_id
+    if create:
+        session_dir.mkdir(parents=True, exist_ok=True)
+    return session_dir
+
+
+def _get_session_file(user_id: str, *, create: bool = False) -> Path:
+    session_dir = _get_session_dir(user_id, create=create)
+    return session_dir / "session.json"
+
+
+def _load_session_data(user_id: str) -> Dict[str, Any]:
+    session_file = _get_session_file(user_id, create=False)
+    if not session_file.exists():
+        return {}
+    try:
+        with session_file.open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (JSONDecodeError, OSError):
+        return {}
+
+
+def _save_session_data(user_id: str, data: Dict[str, Any]) -> None:
+    session_file = _get_session_file(user_id, create=True)
+    with session_file.open("w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+
+
 class CoverPreviewRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -97,6 +135,25 @@ class HtmlPreviewRequest(BaseModel):
 
     user_id: str = Field(..., alias="user_id")
     html_content: str = Field(..., alias="html_content")
+
+
+SESSION_SECTION_KEYS = {"cover", "st_reference", "toe_reference", "toe_overview", "toe_description"}
+ST_INTRO_SECTION_ORDER = ["cover", "st_reference", "toe_reference", "toe_overview", "toe_description"]
+
+
+class SessionSectionPayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    section: str
+    data: Optional[Dict[str, Any]] = None
+    html_content: Optional[str] = Field(None, alias="html_content")
+
+
+class StIntroductionPreviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
 
 
 def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Optional[Path]:
@@ -483,6 +540,18 @@ def _build_html_preview_document(html_content: str, user_id: str, root: Path) ->
     document.save(str(output_path))
     return output_path
 
+
+def _combine_st_intro_html(session_data: Dict[str, Any]) -> str:
+    fragments: List[str] = []
+    for key in ST_INTRO_SECTION_ORDER:
+        section = session_data.get(key)
+        if not isinstance(section, dict):
+            continue
+        html = section.get("html")
+        if isinstance(html, str) and html.strip():
+            fragments.append(html)
+    return "\n".join(fragments)
+
 # CORS configuration: prefer regex if provided to allow any LAN IP on port 5173
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 origin_regex = os.getenv(
@@ -511,6 +580,7 @@ else:
 
 app.mount("/cover/uploads", StaticFiles(directory=str(COVER_UPLOAD_ROOT)), name="cover-uploads")
 app.mount("/cover/docx", StaticFiles(directory=str(COVER_DOCX_ROOT)), name="cover-docx")
+app.mount("/st-introduction/docx", StaticFiles(directory=str(ST_INTRO_DOCX_ROOT)), name="st-introduction-docx")
 app.mount("/security/sfr/docx", StaticFiles(directory=str(SFR_DOCX_ROOT)), name="sfr-docx")
 app.mount("/security/sar/docx", StaticFiles(directory=str(SAR_DOCX_ROOT)), name="sar-docx")
 
@@ -907,6 +977,41 @@ def delete_family_component(table_name: str, item_id: int, db: Session = Depends
     return None
 
 
+@app.post("/session/section")
+async def save_session_section(payload: SessionSectionPayload):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    section = (payload.section or "").strip().lower()
+    if section not in SESSION_SECTION_KEYS:
+        raise HTTPException(status_code=400, detail="Unsupported session section")
+
+    session_data = _load_session_data(payload.user_id)
+    section_entry = session_data.get(section, {})
+    if not isinstance(section_entry, dict):
+        section_entry = {}
+
+    if payload.data is not None:
+        new_data = payload.data if isinstance(payload.data, dict) else {}
+        existing_data = section_entry.get("data") if isinstance(section_entry.get("data"), dict) else {}
+        merged = existing_data.copy()
+        merged.update(new_data)
+        section_entry["data"] = merged
+
+    if payload.html_content is not None:
+        section_entry["html"] = payload.html_content
+
+    session_data[section] = section_entry
+    _save_session_data(payload.user_id, session_data)
+    return {"status": "saved", "section": section}
+
+
+@app.get("/session/{user_id}")
+async def get_session_data(user_id: str):
+    session_payload = _load_session_data(user_id)
+    return {"user_id": user_id, "sections": session_payload}
+
+
 @app.post("/cover/upload")
 async def upload_cover_image(
     user_id: str = Query(..., alias="user_id"),
@@ -977,6 +1082,20 @@ async def generate_sar_preview(payload: HtmlPreviewRequest):
     return {"path": f"/security/sar/docx/{payload.user_id}/{output_path.name}"}
 
 
+@app.post("/st-introduction/preview")
+async def generate_st_introduction_preview(payload: StIntroductionPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    session_payload = _load_session_data(payload.user_id)
+    combined_html = _combine_st_intro_html(session_payload)
+    if not combined_html.strip():
+        raise HTTPException(status_code=400, detail="No ST introduction data is available for preview")
+
+    output_path = _build_html_preview_document(combined_html, payload.user_id, ST_INTRO_DOCX_ROOT)
+    return {"path": f"/st-introduction/docx/{payload.user_id}/{output_path.name}"}
+
+
 @app.delete("/cover/upload/{user_id}")
 async def cleanup_cover_images(user_id: str):
     """Delete all temporary cover images associated with a user session."""
@@ -1011,6 +1130,14 @@ async def cleanup_sfr_preview(user_id: str):
 @app.delete("/security/sar/preview/{user_id}")
 async def cleanup_sar_preview(user_id: str):
     docx_dir = _get_preview_docx_dir(SAR_DOCX_ROOT, user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.delete("/st-introduction/preview/{user_id}")
+async def cleanup_st_introduction_preview(user_id: str):
+    docx_dir = _get_preview_docx_dir(ST_INTRO_DOCX_ROOT, user_id, create=False)
     if docx_dir.exists():
         shutil.rmtree(docx_dir)
     return {"status": "deleted"}

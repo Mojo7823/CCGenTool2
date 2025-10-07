@@ -108,53 +108,40 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
+import { useSessionStore } from '../stores/session'
+import { formatMultilineText, safeText } from '../utils/html'
 
+const sessionStore = useSessionStore()
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragActive = ref(false)
 const uploading = ref(false)
 const uploadError = ref('')
-const uploadedImagePath = ref<string | null>(null)
 const showPreview = ref(false)
 const previewLoading = ref(false)
 const previewError = ref('')
-const hasUploaded = ref(false)
 const generatedDocxPath = ref<string | null>(null)
 const docxPreviewContainer = ref<HTMLDivElement | null>(null)
+const isReady = ref(false)
+let saveTimer: ReturnType<typeof setTimeout> | null = null
 
-const form = reactive({
-  title: '',
-  version: '',
-  revision: '',
-  description: '',
-  manufacturer: '',
-  date: ''
+const form = sessionStore.cover.fields
+
+const uploadedImagePath = computed<string>({
+  get: () => sessionStore.cover.imagePath || '',
+  set: (value) => {
+    sessionStore.cover.imagePath = value || ''
+  },
 })
 
-const storageKey = 'ccgen-user-id'
-const userId = ref('')
-
+const userId = computed(() => sessionStore.userId)
 const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !!form.description)
 const imageUrl = computed(() => {
   if (!uploadedImagePath.value) return ''
   return api.getUri({ url: uploadedImagePath.value })
 })
-
-function ensureUserId() {
-  if (typeof window === 'undefined') return
-  const existing = window.localStorage.getItem(storageKey)
-  if (existing) {
-    userId.value = existing
-    return
-  }
-  const generated = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2)
-  userId.value = generated
-  window.localStorage.setItem(storageKey, generated)
-}
 
 function triggerFileDialog() {
   fileInput.value?.click()
@@ -172,7 +159,64 @@ function validateImage(file: File) {
   }
 }
 
+function buildCoverHtml(): string {
+  const descriptionHtml = form.description.trim()
+    ? `<p>${formatMultilineText(form.description)}</p>`
+    : '<p>—</p>'
+
+  return `
+    <h2>Cover</h2>
+    ${descriptionHtml}
+    <table>
+      <tr><th>Security Target Title</th><td>${safeText(form.title)}</td></tr>
+      <tr><th>Security Target Version</th><td>${safeText(form.version)}</td></tr>
+      <tr><th>Revision</th><td>${safeText(form.revision)}</td></tr>
+      <tr><th>Manufacturer/Laboratory Name</th><td>${safeText(form.manufacturer)}</td></tr>
+      <tr><th>Date</th><td>${safeText(form.date)}</td></tr>
+    </table>
+  `
+}
+
+async function persistCoverData() {
+  if (!isReady.value) return
+  const html = buildCoverHtml()
+  sessionStore.cover.html = html
+  try {
+    await sessionStore.saveSection('cover', {
+      data: {
+        fields: { ...form },
+        image_path: uploadedImagePath.value || '',
+      },
+      html,
+    })
+  } catch (error) {
+    console.error('Failed to persist cover data', error)
+  }
+}
+
+function scheduleSave() {
+  if (!isReady.value) return
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    saveTimer = null
+    void persistCoverData()
+  }, 400)
+}
+
+async function flushPendingSave() {
+  if (!isReady.value) return
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+    await persistCoverData()
+  } else {
+    await persistCoverData()
+  }
+}
+
 async function uploadFile(file: File) {
+  await sessionStore.initialize()
+  sessionStore.ensureUserId()
   if (!userId.value) return
   uploading.value = true
   uploadError.value = ''
@@ -185,7 +229,7 @@ async function uploadFile(file: File) {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     uploadedImagePath.value = response.data.path
-    hasUploaded.value = true
+    await flushPendingSave()
   } catch (error: any) {
     console.error('Upload failed', error)
     resetUploadState(error?.response?.data?.detail || error?.message || 'Failed to upload image.')
@@ -197,22 +241,21 @@ async function uploadFile(file: File) {
 function handleFileSelection(event: Event) {
   const files = (event.target as HTMLInputElement).files
   if (!files || !files.length) return
-  uploadFile(files[0])
+  void uploadFile(files[0])
 }
 
 function handleDrop(event: DragEvent) {
   dragActive.value = false
   const files = event.dataTransfer?.files
   if (!files || !files.length) return
-  uploadFile(files[0])
+  void uploadFile(files[0])
 }
 
 async function openPreview() {
   if (!hasPreview.value || previewLoading.value) return
 
-  if (!userId.value) {
-    ensureUserId()
-  }
+  await sessionStore.initialize()
+  sessionStore.ensureUserId()
 
   if (!userId.value) {
     previewError.value = 'Unable to determine user session identifier.'
@@ -220,7 +263,8 @@ async function openPreview() {
     return
   }
 
-  // Remove any previously generated preview before creating a fresh one.
+  await flushPendingSave()
+
   cleanupDocx()
 
   previewError.value = ''
@@ -236,7 +280,7 @@ async function openPreview() {
       description: form.description,
       manufacturer: form.manufacturer,
       date: form.date,
-      image_path: uploadedImagePath.value,
+      image_path: uploadedImagePath.value || null,
     }
 
     const response = await api.post('/cover/preview', payload)
@@ -263,7 +307,6 @@ function closePreview() {
     previewError.value = ''
   }
 
-  // Clean up the previously generated DOCX so repeat previews start fresh.
   cleanupDocx()
 }
 
@@ -296,11 +339,10 @@ function removeEventListeners() {
 function cleanupUploads(keepalive = false) {
   if (!userId.value) return
 
-  if (hasUploaded.value) {
+  if (uploadedImagePath.value) {
     const url = api.getUri({ url: `/cover/upload/${userId.value}` })
     fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
-    hasUploaded.value = false
-    uploadedImagePath.value = null
+    uploadedImagePath.value = ''
   }
 
   cleanupDocx(keepalive)
@@ -321,8 +363,13 @@ function handlePageHide() {
   cleanupUploads(true)
 }
 
-onMounted(() => {
-  ensureUserId()
+onMounted(async () => {
+  sessionStore.ensureUserId()
+  await sessionStore.initialize()
+  isReady.value = true
+  if (!sessionStore.cover.html) {
+    await persistCoverData()
+  }
   if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', handleBeforeUnload)
     window.addEventListener('pagehide', handlePageHide)
@@ -330,9 +377,27 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  cleanupUploads()
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+    void persistCoverData()
+  }
+  cleanupDocx()
   removeEventListeners()
 })
+
+watch(
+  [
+    () => form.title,
+    () => form.version,
+    () => form.revision,
+    () => form.description,
+    () => form.manufacturer,
+    () => form.date,
+  ],
+  scheduleSave,
+  { deep: false }
+)
 </script>
 
 <style scoped>

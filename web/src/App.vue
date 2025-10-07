@@ -21,9 +21,11 @@
 import { onMounted, ref } from 'vue'
 import Sidebar from './components/Sidebar.vue'
 import api from './services/api'
+import { useSessionStore } from './stores/session'
 
 type Health = { status: 'ok'|'degraded'|string, latency_ms: number }
 const health = ref<Health>({ status: 'degraded', latency_ms: 0 })
+const sessionStore = useSessionStore()
 
 async function poll() {
   try{
@@ -35,6 +37,8 @@ async function poll() {
 }
 
 onMounted(() => {
+  sessionStore.ensureUserId()
+  sessionStore.initialize()
   poll()
   setInterval(poll, 5000)
 })
