@@ -17,7 +17,8 @@ from sqlalchemy import text
 
 from docx import Document
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
-from docx.shared import Mm, Pt
+from docx.shared import Mm, Pt, RGBColor
+from lxml import html as lxml_html
 
 from .database import Base, engine, get_db
 from .models import (
@@ -46,6 +47,10 @@ COVER_UPLOAD_ROOT = Path(os.getenv("COVER_UPLOAD_DIR", Path(tempfile.gettempdir(
 COVER_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 COVER_DOCX_ROOT = Path(os.getenv("COVER_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_cover_docx"))
 COVER_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+SFR_DOCX_ROOT = Path(os.getenv("SFR_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_sfr_docx"))
+SFR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+SAR_DOCX_ROOT = Path(os.getenv("SAR_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_sar_docx"))
+SAR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -60,14 +65,18 @@ def get_user_upload_dir(user_id: str, *, create: bool = False) -> Path:
     return user_dir
 
 
-def get_user_docx_dir(user_id: str, *, create: bool = False) -> Path:
+def _get_preview_docx_dir(root: Path, user_id: str, *, create: bool = False) -> Path:
     if not USER_ID_PATTERN.match(user_id):
         raise HTTPException(status_code=400, detail="Invalid user identifier")
 
-    user_dir = COVER_DOCX_ROOT / user_id
+    user_dir = root / user_id
     if create:
         user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir
+
+
+def get_user_docx_dir(user_id: str, *, create: bool = False) -> Path:
+    return _get_preview_docx_dir(COVER_DOCX_ROOT, user_id, create=create)
 
 
 class CoverPreviewRequest(BaseModel):
@@ -81,6 +90,13 @@ class CoverPreviewRequest(BaseModel):
     manufacturer: Optional[str] = None
     date: Optional[str] = None
     image_path: Optional[str] = Field(None, alias="image_path")
+
+
+class HtmlPreviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    html_content: str = Field(..., alias="html_content")
 
 
 def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Optional[Path]:
@@ -166,6 +182,307 @@ def _build_cover_document(payload: CoverPreviewRequest) -> Path:
     document.save(str(output_path))
     return output_path
 
+
+def _px_to_points(px_value: float) -> float:
+    # Approximate conversion assuming 96px = 72pt
+    return px_value * 0.75
+
+
+def _parse_margin_left(style: Optional[str]) -> Optional[float]:
+    if not style:
+        return None
+    match = re.search(r"margin-left\s*:\s*([0-9.]+)px", style)
+    if not match:
+        return None
+    try:
+        return _px_to_points(float(match.group(1)))
+    except ValueError:
+        return None
+
+
+def _parse_color(value: Optional[str]) -> Optional[RGBColor]:
+    if not value:
+        return None
+
+    color = value.strip().lower()
+    if color.startswith("#"):
+        hex_value = color[1:]
+        if len(hex_value) == 3:
+            hex_value = "".join(ch * 2 for ch in hex_value)
+        if len(hex_value) == 6:
+            try:
+                r = int(hex_value[0:2], 16)
+                g = int(hex_value[2:4], 16)
+                b = int(hex_value[4:6], 16)
+                return RGBColor(r, g, b)
+            except ValueError:
+                return None
+    elif color.startswith("rgb"):
+        numbers = re.findall(r"[0-9]{1,3}", color)
+        if len(numbers) >= 3:
+            try:
+                r, g, b = (min(255, max(0, int(num))) for num in numbers[:3])
+                return RGBColor(r, g, b)
+            except ValueError:
+                return None
+    return None
+
+
+def _collect_inline_styles(element) -> dict:
+    styles = {
+        "bold": False,
+        "italic": False,
+        "underline": False,
+        "strike": False,
+        "color": None,
+        "size": None,
+    }
+
+    tag = (element.tag or "").lower()
+    if tag in {"strong", "b"}:
+        styles["bold"] = True
+    if tag in {"em", "i"}:
+        styles["italic"] = True
+    if tag in {"u", "ins"}:
+        styles["underline"] = True
+    if tag in {"s", "strike", "del"}:
+        styles["strike"] = True
+
+    style_attr = element.get("style", "")
+    for rule in style_attr.split(";"):
+        rule = rule.strip().lower()
+        if not rule:
+            continue
+        if "bold" in rule:
+            styles["bold"] = True
+        if "italic" in rule:
+            styles["italic"] = True
+        if "underline" in rule:
+            styles["underline"] = True
+        if "line-through" in rule:
+            styles["strike"] = True
+        if rule.startswith("color"):
+            parts = rule.split(":", 1)
+            if len(parts) == 2:
+                parsed = _parse_color(parts[1])
+                if parsed:
+                    styles["color"] = parsed
+
+    color_attr = element.get("color")
+    parsed_color = _parse_color(color_attr)
+    if parsed_color:
+        styles["color"] = parsed_color
+
+    return styles
+
+
+def _apply_styles_to_run(run, styles: dict):
+    if styles.get("bold"):
+        run.bold = True
+    if styles.get("italic"):
+        run.italic = True
+    if styles.get("underline"):
+        run.underline = True
+    if styles.get("strike"):
+        run.strike = True
+    color = styles.get("color")
+    if color:
+        run.font.color.rgb = color
+    size = styles.get("size")
+    if size:
+        run.font.size = size
+
+
+def _merge_styles(parent: dict, child: dict) -> dict:
+    merged = parent.copy()
+    for key, value in child.items():
+        if key in {"color", "size"}:
+            if value is not None:
+                merged[key] = value
+        elif value:
+            merged[key] = True
+    return merged
+
+
+def _append_inline_content(paragraph, element, inherited_styles: Optional[dict] = None):
+    styles = _collect_inline_styles(element)
+    combined_styles = _merge_styles(inherited_styles or {
+        "bold": False,
+        "italic": False,
+        "underline": False,
+        "strike": False,
+        "color": None,
+        "size": None,
+    }, styles)
+
+    text = element.text or ""
+    if text:
+        run = paragraph.add_run(text.replace("\xa0", " "))
+        _apply_styles_to_run(run, combined_styles)
+
+    for child in element:
+        _append_inline_content(paragraph, child, combined_styles)
+        tail = child.tail or ""
+        if tail:
+            run = paragraph.add_run(tail.replace("\xa0", " "))
+            _apply_styles_to_run(run, combined_styles)
+
+
+def _append_block_element(document: Document, element, inherited_indent: Optional[float] = None):
+    tag = (element.tag or "").lower()
+    style_attr = element.get("style")
+    margin_left = _parse_margin_left(style_attr)
+    indent = margin_left if margin_left is not None else inherited_indent
+
+    heading_map = {
+        "h1": Pt(24),
+        "h2": Pt(20),
+        "h3": Pt(18),
+        "h4": Pt(16),
+        "h5": Pt(14),
+        "h6": Pt(12),
+    }
+
+    if tag in heading_map:
+        paragraph = document.add_paragraph()
+        if indent:
+            paragraph.paragraph_format.left_indent = Pt(indent)
+        base_styles = {
+            "bold": True,
+            "italic": False,
+            "underline": False,
+            "strike": False,
+            "color": None,
+            "size": heading_map[tag],
+        }
+        _append_inline_content(paragraph, element, base_styles)
+        return
+
+    if tag == "p":
+        text_content = (element.text or "") + "".join(
+            (child.text or "") + (child.tail or "") for child in element
+        )
+        if not text_content.strip() and not element.findall("*"):
+            document.add_paragraph()
+            return
+
+        paragraph = document.add_paragraph()
+        if indent:
+            paragraph.paragraph_format.left_indent = Pt(indent)
+        _append_inline_content(paragraph, element)
+        return
+
+    if tag in {"div", "section"}:
+        child_indent = indent if indent is not None else inherited_indent
+        text = (element.text or "").strip()
+        if text:
+            paragraph = document.add_paragraph(text)
+            if child_indent:
+                paragraph.paragraph_format.left_indent = Pt(child_indent)
+        for child in element:
+            _append_block_element(document, child, child_indent)
+        tail = (element.tail or "").strip()
+        if tail:
+            paragraph = document.add_paragraph(tail)
+            if child_indent:
+                paragraph.paragraph_format.left_indent = Pt(child_indent)
+        return
+
+    if tag in {"ul", "ol"}:
+        items = [child for child in element if (child.tag or "").lower() == "li"]
+        for idx, child in enumerate(items, start=1):
+            paragraph = document.add_paragraph()
+            if indent:
+                paragraph.paragraph_format.left_indent = Pt(indent)
+            prefix = "• " if tag == "ul" else f"{idx}. "
+            run = paragraph.add_run(prefix)
+            _append_inline_content(paragraph, child, {
+                "bold": False,
+                "italic": False,
+                "underline": False,
+                "strike": False,
+                "color": None,
+                "size": None,
+            })
+        return
+
+    if tag == "table":
+        rows = [row for row in element.findall(".//tr")]
+        if not rows:
+            return
+
+        max_cells = 0
+        table_rows = []
+        for row in rows:
+            cells = [cell for cell in row if (cell.tag or "").lower() in {"th", "td"}]
+            table_rows.append(cells)
+            max_cells = max(max_cells, len(cells))
+
+        if max_cells == 0:
+            return
+
+        table = document.add_table(rows=len(table_rows), cols=max_cells)
+        table.style = "Table Grid"
+
+        for row_index, cells in enumerate(table_rows):
+            for col_index, cell in enumerate(cells):
+                if col_index >= max_cells:
+                    continue
+                paragraph = table.cell(row_index, col_index).paragraphs[0]
+                paragraph.text = ""
+                _append_inline_content(paragraph, cell)
+                if (cell.tag or "").lower() == "th":
+                    for run in paragraph.runs:
+                        run.bold = True
+        return
+
+    if tag == "br":
+        document.add_paragraph()
+        return
+
+    # Fallback: treat unknown block elements as paragraphs.
+    paragraph = document.add_paragraph()
+    if indent:
+        paragraph.paragraph_format.left_indent = Pt(indent)
+    _append_inline_content(paragraph, element)
+
+
+def _append_html_to_document(document: Document, html_content: str):
+    if not html_content or not html_content.strip():
+        return
+
+    try:
+        fragment = lxml_html.fragment_fromstring(html_content, create_parent=True)
+    except (ValueError, TypeError):
+        paragraph = document.add_paragraph(html_content)
+        return
+
+    for child in fragment:
+        _append_block_element(document, child)
+
+
+def _build_html_preview_document(html_content: str, user_id: str, root: Path) -> Path:
+    docx_dir = _get_preview_docx_dir(root, user_id, create=True)
+
+    for existing in docx_dir.glob("*.docx"):
+        existing.unlink(missing_ok=True)
+
+    document = Document()
+    section = document.sections[0]
+    section.page_height = Mm(297)
+    section.page_width = Mm(210)
+    section.top_margin = Mm(20)
+    section.bottom_margin = Mm(20)
+    section.left_margin = Mm(25)
+    section.right_margin = Mm(25)
+
+    _append_html_to_document(document, html_content)
+
+    filename = f"{uuid.uuid4().hex}.docx"
+    output_path = docx_dir / filename
+    document.save(str(output_path))
+    return output_path
+
 # CORS configuration: prefer regex if provided to allow any LAN IP on port 5173
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 origin_regex = os.getenv(
@@ -194,6 +511,8 @@ else:
 
 app.mount("/cover/uploads", StaticFiles(directory=str(COVER_UPLOAD_ROOT)), name="cover-uploads")
 app.mount("/cover/docx", StaticFiles(directory=str(COVER_DOCX_ROOT)), name="cover-docx")
+app.mount("/security/sfr/docx", StaticFiles(directory=str(SFR_DOCX_ROOT)), name="sfr-docx")
+app.mount("/security/sar/docx", StaticFiles(directory=str(SAR_DOCX_ROOT)), name="sar-docx")
 
 
 @app.get("/health")
@@ -640,6 +959,24 @@ async def generate_cover_preview(payload: CoverPreviewRequest):
     return {"path": f"/cover/docx/{payload.user_id}/{output_path.name}"}
 
 
+@app.post("/security/sfr/preview")
+async def generate_sfr_preview(payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_html_preview_document(payload.html_content, payload.user_id, SFR_DOCX_ROOT)
+    return {"path": f"/security/sfr/docx/{payload.user_id}/{output_path.name}"}
+
+
+@app.post("/security/sar/preview")
+async def generate_sar_preview(payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_html_preview_document(payload.html_content, payload.user_id, SAR_DOCX_ROOT)
+    return {"path": f"/security/sar/docx/{payload.user_id}/{output_path.name}"}
+
+
 @app.delete("/cover/upload/{user_id}")
 async def cleanup_cover_images(user_id: str):
     """Delete all temporary cover images associated with a user session."""
@@ -658,6 +995,22 @@ async def cleanup_cover_preview(user_id: str):
     """Delete generated cover preview documents for a user session."""
 
     docx_dir = get_user_docx_dir(user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.delete("/security/sfr/preview/{user_id}")
+async def cleanup_sfr_preview(user_id: str):
+    docx_dir = _get_preview_docx_dir(SFR_DOCX_ROOT, user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.delete("/security/sar/preview/{user_id}")
+async def cleanup_sar_preview(user_id: str):
+    docx_dir = _get_preview_docx_dir(SAR_DOCX_ROOT, user_id, create=False)
     if docx_dir.exists():
         shutil.rmtree(docx_dir)
     return {"status": "deleted"}
