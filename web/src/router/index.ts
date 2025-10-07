@@ -9,6 +9,7 @@ import STReference from '../views/STReference.vue'
 import TOEReference from '../views/TOEReference.vue'
 import TOEOverview from '../views/TOEOverview.vue'
 import TOEDescription from '../views/TOEDescription.vue'
+import STIntroPreview from '../views/STIntroPreview.vue'
 
 const routes = [
   { path: '/', name: 'home', component: Home },
@@ -19,6 +20,7 @@ const routes = [
   { path: '/st-intro/toe-reference', name: 'toe-reference', component: TOEReference },
   { path: '/st-intro/toe-overview', name: 'toe-overview', component: TOEOverview },
   { path: '/st-intro/toe-description', name: 'toe-description', component: TOEDescription },
+  { path: '/st-intro/preview', name: 'st-intro-preview', component: STIntroPreview },
   { path: '/security/sfr', name: 'security-sfr', component: SecurityFunctionalRequirements },
   { path: '/security/sar', name: 'security-sar', component: SecurityAssuranceRequirements },
 ]

@@ -51,6 +51,8 @@ SFR_DOCX_ROOT = Path(os.getenv("SFR_DOCX_DIR", Path(tempfile.gettempdir()) / "cc
 SFR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 SAR_DOCX_ROOT = Path(os.getenv("SAR_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_sar_docx"))
 SAR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+ST_INTRO_DOCX_ROOT = Path(os.getenv("ST_INTRO_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_stintro_docx"))
+ST_INTRO_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -97,6 +99,17 @@ class HtmlPreviewRequest(BaseModel):
 
     user_id: str = Field(..., alias="user_id")
     html_content: str = Field(..., alias="html_content")
+
+
+class STIntroPreviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    cover_data: Optional[dict] = None
+    st_reference_html: Optional[str] = None
+    toe_reference_html: Optional[str] = None
+    toe_overview_html: Optional[str] = None
+    toe_description_html: Optional[str] = None
 
 
 def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Optional[Path]:
@@ -483,6 +496,141 @@ def _build_html_preview_document(html_content: str, user_id: str, root: Path) ->
     document.save(str(output_path))
     return output_path
 
+
+def _build_st_intro_combined_document(payload: STIntroPreviewRequest) -> Path:
+    """Build a combined ST Introduction document from all sections."""
+    docx_dir = _get_preview_docx_dir(ST_INTRO_DOCX_ROOT, payload.user_id, create=True)
+
+    # Clear previous previews
+    for existing in docx_dir.glob("*.docx"):
+        existing.unlink(missing_ok=True)
+
+    document = Document()
+    section = document.sections[0]
+    section.page_height = Mm(297)
+    section.page_width = Mm(210)
+    section.top_margin = Mm(20)
+    section.bottom_margin = Mm(20)
+    section.left_margin = Mm(25)
+    section.right_margin = Mm(25)
+
+    # Add cover page if provided
+    if payload.cover_data:
+        cover_dict = payload.cover_data
+        image_path = cover_dict.get("image_path")
+        
+        # Add cover image if present
+        if image_path:
+            try:
+                image_file = _resolve_uploaded_image_path(image_path, payload.user_id)
+                if image_file:
+                    image_paragraph = document.add_paragraph()
+                    image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                    run = image_paragraph.add_run()
+                    run.add_picture(str(image_file), width=Mm(120))
+                    image_paragraph.space_after = Pt(12)
+            except:
+                pass  # Skip if image not found
+        
+        # Add cover title
+        title_text = cover_dict.get("title", "").strip() or "Security Target Title"
+        title_paragraph = document.add_paragraph()
+        title_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        title_run = title_paragraph.add_run(title_text)
+        title_run.font.size = Pt(24)
+        title_run.font.bold = True
+        title_paragraph.space_after = Pt(12)
+        
+        # Add cover description
+        if cover_dict.get("description"):
+            description_paragraph = document.add_paragraph(cover_dict["description"].strip())
+            description_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+            description_paragraph.space_after = Pt(18)
+        
+        # Add cover metadata
+        info_items = [
+            ("Version", cover_dict.get("version", "").strip() or "—"),
+            ("Revision", cover_dict.get("revision", "").strip() or "—"),
+            ("Manufacturer/Laboratory", cover_dict.get("manufacturer", "").strip() or "—"),
+            ("Date", _format_cover_date(cover_dict.get("date"))),
+        ]
+        
+        for label, value in info_items:
+            paragraph = document.add_paragraph()
+            paragraph.space_after = Pt(6)
+            run_label = paragraph.add_run(f"{label}: ")
+            run_label.font.bold = True
+            paragraph.add_run(value)
+        
+        # Add page break after cover
+        document.add_page_break()
+
+    # Add main heading
+    heading = document.add_paragraph()
+    heading_run = heading.add_run("1. Security Target Introduction")
+    heading_run.font.size = Pt(20)
+    heading_run.font.bold = True
+    heading.space_after = Pt(12)
+    
+    # Add introduction text
+    intro_text = (
+        "This section presents the following information required for a Common Criteria (CC) evaluation:\n"
+        "• Identifies the Security Target (ST) and the Target of Evaluation (TOE)\n"
+        "• Specifies the security target conventions,\n"
+        "• Describes the organization of the security target"
+    )
+    intro_para = document.add_paragraph(intro_text)
+    intro_para.space_after = Pt(12)
+
+    # Add ST Reference section
+    if payload.st_reference_html:
+        st_ref_heading = document.add_paragraph()
+        st_ref_run = st_ref_heading.add_run("1.1 ST Reference")
+        st_ref_run.font.size = Pt(18)
+        st_ref_run.font.bold = True
+        st_ref_heading.space_before = Pt(12)
+        st_ref_heading.space_after = Pt(8)
+        
+        _append_html_to_document(document, payload.st_reference_html)
+
+    # Add TOE Reference section
+    if payload.toe_reference_html:
+        toe_ref_heading = document.add_paragraph()
+        toe_ref_run = toe_ref_heading.add_run("1.2 TOE Reference")
+        toe_ref_run.font.size = Pt(18)
+        toe_ref_run.font.bold = True
+        toe_ref_heading.space_before = Pt(12)
+        toe_ref_heading.space_after = Pt(8)
+        
+        _append_html_to_document(document, payload.toe_reference_html)
+
+    # Add TOE Overview section
+    if payload.toe_overview_html:
+        toe_overview_heading = document.add_paragraph()
+        toe_overview_run = toe_overview_heading.add_run("1.3 TOE Overview")
+        toe_overview_run.font.size = Pt(18)
+        toe_overview_run.font.bold = True
+        toe_overview_heading.space_before = Pt(12)
+        toe_overview_heading.space_after = Pt(8)
+        
+        _append_html_to_document(document, payload.toe_overview_html)
+
+    # Add TOE Description section
+    if payload.toe_description_html:
+        toe_desc_heading = document.add_paragraph()
+        toe_desc_run = toe_desc_heading.add_run("1.4 TOE Description")
+        toe_desc_run.font.size = Pt(18)
+        toe_desc_run.font.bold = True
+        toe_desc_heading.space_before = Pt(12)
+        toe_desc_heading.space_after = Pt(8)
+        
+        _append_html_to_document(document, payload.toe_description_html)
+
+    filename = f"{uuid.uuid4().hex}.docx"
+    output_path = docx_dir / filename
+    document.save(str(output_path))
+    return output_path
+
 # CORS configuration: prefer regex if provided to allow any LAN IP on port 5173
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 origin_regex = os.getenv(
@@ -513,6 +661,7 @@ app.mount("/cover/uploads", StaticFiles(directory=str(COVER_UPLOAD_ROOT)), name=
 app.mount("/cover/docx", StaticFiles(directory=str(COVER_DOCX_ROOT)), name="cover-docx")
 app.mount("/security/sfr/docx", StaticFiles(directory=str(SFR_DOCX_ROOT)), name="sfr-docx")
 app.mount("/security/sar/docx", StaticFiles(directory=str(SAR_DOCX_ROOT)), name="sar-docx")
+app.mount("/st-intro/docx", StaticFiles(directory=str(ST_INTRO_DOCX_ROOT)), name="st-intro-docx")
 
 
 @app.get("/health")
@@ -977,6 +1126,15 @@ async def generate_sar_preview(payload: HtmlPreviewRequest):
     return {"path": f"/security/sar/docx/{payload.user_id}/{output_path.name}"}
 
 
+@app.post("/st-intro/preview")
+async def generate_st_intro_preview(payload: STIntroPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_st_intro_combined_document(payload)
+    return {"path": f"/st-intro/docx/{payload.user_id}/{output_path.name}"}
+
+
 @app.delete("/cover/upload/{user_id}")
 async def cleanup_cover_images(user_id: str):
     """Delete all temporary cover images associated with a user session."""
@@ -1011,6 +1169,14 @@ async def cleanup_sfr_preview(user_id: str):
 @app.delete("/security/sar/preview/{user_id}")
 async def cleanup_sar_preview(user_id: str):
     docx_dir = _get_preview_docx_dir(SAR_DOCX_ROOT, user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.delete("/st-intro/preview/{user_id}")
+async def cleanup_st_intro_preview(user_id: str):
+    docx_dir = _get_preview_docx_dir(ST_INTRO_DOCX_ROOT, user_id, create=False)
     if docx_dir.exists():
         shutil.rmtree(docx_dir)
     return {"status": "deleted"}
