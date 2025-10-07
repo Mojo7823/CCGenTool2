@@ -461,25 +461,14 @@ const buildSarTableHtml = (
   classOrder: string[],
   groups: Record<string, { className: string; sars: SarEntry[] }>
 ) => {
-  let html = `
-<table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
-  <thead>
-    <tr>
-      <th style="border: 1px solid #9CA3AF; padding: 8px; background-color: #F3F4F6; text-align: left;">SAR Class</th>
-      <th style="border: 1px solid #9CA3AF; padding: 8px; background-color: #F3F4F6; text-align: left;">Assurance Components</th>
-    </tr>
-  </thead>
-  <tbody>
-`
+  let rowsHtml = ''
 
   if (classOrder.length === 0) {
-    html += `
-    <tr>
-      <td colspan="2" style="border: 1px solid #9CA3AF; padding: 12px; font-style: italic; color: #6B7280; text-align: center;">
-        No Security Assurance Requirements selected.
-      </td>
-    </tr>
-`
+    rowsHtml += `
+      <tr>
+        <td colspan="2" class="sar-preview-table__empty">No Security Assurance Requirements selected.</td>
+      </tr>
+    `
   } else {
     classOrder.forEach(classCode => {
       const classData = groups[classCode]
@@ -490,12 +479,12 @@ const buildSarTableHtml = (
       const sarEntries = classData.sars ?? []
 
       if (sarEntries.length === 0) {
-        html += `
-    <tr>
-      <td style="border: 1px solid #9CA3AF; padding: 8px; font-weight: 600;">${escapeHtml(classData.className)}</td>
-      <td style="border: 1px solid #9CA3AF; padding: 8px; font-style: italic; color: #6B7280;">No assurance components recorded.</td>
-    </tr>
-`
+        rowsHtml += `
+          <tr>
+            <td class="sar-preview-table__class-cell">${escapeHtml(classData.className)}</td>
+            <td class="sar-preview-table__note">No assurance components recorded.</td>
+          </tr>
+        `
         return
       }
 
@@ -503,26 +492,35 @@ const buildSarTableHtml = (
         const componentLabel = escapeHtml(formatAssuranceComponentLabel(sar.componentId, sar.componentName))
         const classCell =
           index === 0
-            ? `<td rowspan="${sarEntries.length}" style="border: 1px solid #9CA3AF; padding: 8px; vertical-align: top; font-weight: 600;">${escapeHtml(classData.className)}</td>`
+            ? `<td class="sar-preview-table__class-cell" rowspan="${sarEntries.length}">${escapeHtml(classData.className)}</td>`
             : ''
 
-        html += `
-    <tr>
-      ${classCell}
-      <td style="border: 1px solid #9CA3AF; padding: 8px;">${componentLabel}</td>
-    </tr>
-`
+        rowsHtml += `
+          <tr>
+            ${classCell}
+            <td class="sar-preview-table__component">${componentLabel}</td>
+          </tr>
+        `
       })
     })
   }
 
-  html += `
-  </tbody>
-</table>
-<p style="text-align: center; font-style: italic; margin-top: 8px;">Table 7 Security Assurance Components</p>
-`
-
-  return html
+  return `
+    <div class="sar-preview-table-wrapper">
+      <table class="sar-preview-table">
+        <thead>
+          <tr>
+            <th scope="col">SAR Class</th>
+            <th scope="col">Assurance Components</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    </div>
+    <p class="sar-preview-table-caption">Table 7 Security Assurance Components</p>
+  `
 }
 
 const buildSarSectionsHtml = (
@@ -530,7 +528,7 @@ const buildSarSectionsHtml = (
   groups: Record<string, { className: string; sars: SarEntry[] }>
 ) => {
   if (classOrder.length === 0) {
-    return '<p style="margin-top: 16px; font-style: italic; color: #6B7280;">No Security Assurance Requirements have been defined.</p>'
+    return '<p class="sar-preview-empty">No Security Assurance Requirements have been defined.</p>'
   }
 
   let html = ''
@@ -543,26 +541,34 @@ const buildSarSectionsHtml = (
     }
 
     const headingText = escapeHtml(formatClassHeading(classData.className, classCode))
-    html += `<h5 style="margin-top: 24px;">5.3.${classIndex} ${headingText}</h5>`
+    html += `
+      <section class="sar-preview-class">
+        <h5 class="sar-preview-section-heading">5.3.${classIndex} ${headingText}</h5>
+    `
 
     if (!classData.sars.length) {
-      html += '<p style="margin-left: 20px; font-style: italic; color: #6B7280;">No assurance components documented for this class.</p>'
+      html += '<p class="sar-preview-note">No assurance components documented for this class.</p>'
+      html += '</section>'
       classIndex++
       return
     }
 
     classData.sars.forEach(sar => {
       const componentHeading = escapeHtml(formatComponentHeading(sar.componentId, sar.componentName))
-      const isSelected = selectedSarId.value === sar.id
-      const highlightColor = isSelected ? '#FCD34D' : '#FFF3B0'
-      const content = sar.previewContent && sar.previewContent.trim().length > 0
-        ? sar.previewContent
-        : '<p style="font-style: italic; color: #6B7280;">No component details provided.</p>'
+      const content =
+        sar.previewContent && sar.previewContent.trim().length > 0
+          ? sar.previewContent
+          : '<p class="sar-preview-note">No component details provided.</p>'
 
-      html += `<p style="margin: 12px 0 4px; font-size: 13pt; font-weight: 600; display: inline-block; padding: 4px 8px; border-radius: 4px; background-color: ${highlightColor};">[${componentHeading}]</p>`
-      html += `<div style="margin-left: 20px; font-size: 12pt; line-height: 1.6;">${content}</div>`
+      html += `
+        <div class="sar-preview-component">
+          <p class="sar-preview-component__title">${componentHeading}</p>
+          <div class="sar-preview-component__body">${content}</div>
+        </div>
+      `
     })
 
+    html += '</section>'
     classIndex++
   })
 
@@ -892,6 +898,15 @@ const finalizeSAR = async () => {
     }
   }
 
+  const duplicateClass = sarList.value.some(
+    existing => existing.classCode === entry.classCode && existing.id !== entry.id
+  )
+
+  if (duplicateClass) {
+    alert('Only one assurance component can be selected per SAR class. Please edit the existing entry to make changes.')
+    return
+  }
+
   if (editingMode.value === 'database' && editingSarId.value !== null) {
     const index = sarList.value.findIndex(item => item.id === editingSarId.value)
     if (index !== -1) {
@@ -931,6 +946,15 @@ const finalizeCustomSAR = () => {
       customClassInput: classMeta.raw,
       customComponentInput: componentMeta.display
     }
+  }
+
+  const duplicateClass = sarList.value.some(
+    existing => existing.classCode === entry.classCode && existing.id !== entry.id
+  )
+
+  if (duplicateClass) {
+    alert('Only one assurance component can be selected per SAR class. Please edit the existing entry to make changes.')
+    return
   }
 
   if (editingMode.value === 'custom' && editingSarId.value !== null) {
@@ -1403,7 +1427,7 @@ onMounted(async () => {
   line-height: 1.6;
 }
 
-.sar-preview-content h4 {
+.sar-preview-content :deep(h4) {
   color: var(--text-bright);
   margin-top: 0;
   margin-bottom: 16px;
@@ -1412,7 +1436,7 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.sar-preview-content h5 {
+.sar-preview-content :deep(h5) {
   color: var(--text-bright);
   margin-top: 24px;
   margin-bottom: 12px;
@@ -1421,7 +1445,7 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.sar-preview-content h6 {
+.sar-preview-content :deep(h6) {
   color: var(--text-bright);
   margin-top: 20px;
   margin-bottom: 10px;
@@ -1430,7 +1454,7 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.sar-preview-content p {
+.sar-preview-content :deep(p) {
   margin-bottom: 12px;
   color: var(--text);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -1438,15 +1462,127 @@ onMounted(async () => {
   line-height: 1.6;
 }
 
-.sar-preview-content strong {
+.sar-preview-content :deep(strong) {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   font-weight: 600;
   color: var(--text-bright);
 }
 
-.sar-preview-content em {
+.sar-preview-content :deep(em) {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   font-style: italic;
+}
+
+.sar-preview-content :deep(.sar-preview-table-wrapper) {
+  margin-top: 16px;
+  background: #F9FAFB;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.sar-preview-content :deep(.sar-preview-table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 13px;
+  color: #1F2937;
+}
+
+.sar-preview-content :deep(.sar-preview-table thead th) {
+  background: #1F2937;
+  color: #F9FAFB;
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.sar-preview-content :deep(.sar-preview-table tbody td) {
+  padding: 12px 16px;
+  border-top: 1px solid #E5E7EB;
+  background: transparent;
+  color: #1F2937;
+  vertical-align: top;
+}
+
+.sar-preview-content :deep(.sar-preview-table tbody tr:nth-child(even) td) {
+  background: #F3F4F6;
+}
+
+.sar-preview-content :deep(.sar-preview-table__class-cell) {
+  font-weight: 600;
+  width: 36%;
+}
+
+.sar-preview-content :deep(.sar-preview-table__component) {
+  width: 64%;
+}
+
+.sar-preview-content :deep(.sar-preview-table__empty) {
+  padding: 20px 16px;
+  text-align: center;
+  font-style: italic;
+  color: #4B5563;
+  background: #F9FAFB;
+}
+
+.sar-preview-content :deep(.sar-preview-table__note) {
+  font-style: italic;
+  color: #4B5563;
+}
+
+.sar-preview-content :deep(.sar-preview-table-caption) {
+  text-align: center;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-muted);
+  margin-top: 8px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.sar-preview-content :deep(.sar-preview-class) {
+  margin-top: 24px;
+}
+
+.sar-preview-content :deep(.sar-preview-section-heading) {
+  margin: 0 0 12px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.sar-preview-content :deep(.sar-preview-note),
+.sar-preview-content :deep(.sar-preview-empty) {
+  font-style: italic;
+  color: #9CA3AF;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 13px;
+}
+
+.sar-preview-content :deep(.sar-preview-note) {
+  margin-left: 16px;
+}
+
+.sar-preview-content :deep(.sar-preview-component) {
+  margin-bottom: 16px;
+}
+
+.sar-preview-content :deep(.sar-preview-component__title) {
+  margin: 12px 0 4px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.sar-preview-content :deep(.sar-preview-component__body) {
+  margin-left: 16px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.6;
 }
 
 .btn.danger {
