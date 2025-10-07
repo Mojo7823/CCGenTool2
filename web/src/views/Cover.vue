@@ -5,8 +5,8 @@
         <h1>Cover Image</h1>
         <span class="menubar-subtitle">Insert Cover Image Here</span>
       </div>
-      <button class="btn primary" type="button" @click="openPreview" :disabled="!hasPreview">
-        Preview Cover
+      <button class="btn primary" type="button" @click="openPreview" :disabled="!hasPreview || isGeneratingPreview">
+        {{ isGeneratingPreview ? 'Generating Preview...' : 'Preview Cover' }}
       </button>
     </div>
 
@@ -78,40 +78,19 @@
     </div>
 
     <div v-if="showPreview" class="modal-overlay" @click.self="closePreview">
-      <div class="modal-card">
+      <div class="modal-card modal-card-wide">
         <header class="modal-header">
-          <h2>Cover Preview</h2>
+          <h2>Cover Preview (A4 Format)</h2>
           <button class="modal-close" type="button" @click="closePreview">&times;</button>
         </header>
-        <section class="modal-body">
-          <div class="modal-image" v-if="imageUrl">
-            <img :src="imageUrl" alt="Cover preview" />
+        <section class="modal-body modal-body-preview">
+          <div v-if="previewError" class="preview-error">
+            {{ previewError }}
           </div>
-          <div v-else class="modal-placeholder">
-            <span>No cover image uploaded.</span>
+          <div v-else-if="isGeneratingPreview" class="preview-loading">
+            Generating document preview...
           </div>
-          <div class="modal-details">
-            <h3>{{ form.title || 'Security Target Title' }}</h3>
-            <p class="modal-description">{{ form.description || 'Additional description will appear here.' }}</p>
-            <dl>
-              <div>
-                <dt>Version</dt>
-                <dd>{{ form.version || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Revision</dt>
-                <dd>{{ form.revision || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Manufacturer/Laboratory</dt>
-                <dd>{{ form.manufacturer || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Date</dt>
-                <dd>{{ formattedDate }}</dd>
-              </div>
-            </dl>
-          </div>
+          <div v-else ref="docxPreviewContainer" class="docx-preview-container"></div>
         </section>
         <footer class="modal-footer">
           <button class="btn" type="button" @click="closePreview">Close</button>
@@ -122,8 +101,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, nextTick } from 'vue'
 import api from '../services/api'
+import { renderAsync } from 'docx-preview'
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragActive = ref(false)
@@ -132,6 +112,9 @@ const uploadError = ref('')
 const uploadedImagePath = ref<string | null>(null)
 const showPreview = ref(false)
 const hasUploaded = ref(false)
+const isGeneratingPreview = ref(false)
+const previewError = ref('')
+const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 
 const form = reactive({
   title: '',
@@ -225,13 +208,72 @@ function handleDrop(event: DragEvent) {
   uploadFile(files[0])
 }
 
-function openPreview() {
-  if (!hasPreview.value) return
+async function openPreview() {
+  if (!hasPreview.value || isGeneratingPreview.value) return
+  
   showPreview.value = true
+  isGeneratingPreview.value = true
+  previewError.value = ''
+  
+  try {
+    // Generate DOCX on backend
+    const response = await api.post('/cover/preview', {
+      title: form.title || 'Security Target Title',
+      version: form.version || '—',
+      revision: form.revision || '—',
+      description: form.description || '',
+      manufacturer: form.manufacturer || '—',
+      date: formattedDate.value,
+      imageUrl: uploadedImagePath.value || ''
+    }, {
+      params: { user_id: userId.value }
+    })
+    
+    const docxPath = response.data.path
+    
+    // Fetch the DOCX file
+    const docxResponse = await api.get(docxPath, {
+      responseType: 'arraybuffer'
+    })
+    
+    // Wait for the next tick to ensure the container is rendered
+    await nextTick()
+    
+    // Render the DOCX using docx-preview
+    if (docxPreviewContainer.value) {
+      await renderAsync(docxResponse.data, docxPreviewContainer.value, undefined, {
+        className: 'docx-preview',
+        inWrapper: false,
+        ignoreWidth: false,
+        ignoreHeight: false,
+        ignoreFonts: false,
+        breakPages: true,
+        ignoreLastRenderedPageBreak: false,
+        experimental: false,
+        trimXmlDeclaration: true,
+        useBase64URL: false,
+        useMathMLPolyfill: false,
+        renderChanges: false,
+        renderHeaders: true,
+        renderFooters: true,
+        renderFootnotes: true,
+        renderEndnotes: true,
+      })
+    }
+  } catch (error: any) {
+    console.error('Preview generation failed', error)
+    previewError.value = error?.response?.data?.detail || error?.message || 'Failed to generate preview.'
+  } finally {
+    isGeneratingPreview.value = false
+  }
 }
 
 function closePreview() {
   showPreview.value = false
+  previewError.value = ''
+  if (docxPreviewContainer.value) {
+    docxPreviewContainer.value.innerHTML = ''
+  }
 }
 
 function removeEventListeners() {
@@ -492,5 +534,57 @@ dt {
   border-top: 1px solid #1f2937;
   display: flex;
   justify-content: flex-end;
+}
+
+.modal-card-wide {
+  max-width: 900px;
+}
+
+.modal-body-preview {
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.docx-preview-container {
+  background: white;
+  padding: 40px;
+  min-height: 400px;
+}
+
+.preview-error {
+  padding: 20px;
+  text-align: center;
+  color: var(--danger);
+}
+
+.preview-loading {
+  padding: 40px;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* DOCX Preview Styles - Override library defaults for better A4 appearance */
+:deep(.docx) {
+  background: white !important;
+  color: black !important;
+  font-family: 'Calibri', 'Arial', sans-serif !important;
+  font-size: 11pt !important;
+  line-height: 1.5 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+:deep(.docx-wrapper) {
+  background: white !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+:deep(.docx-wrapper > section) {
+  background: white !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 </style>

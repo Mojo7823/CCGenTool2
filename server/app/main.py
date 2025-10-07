@@ -7,12 +7,17 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
+from io import BytesIO
 
-from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from docx import Document
+from docx.shared import Inches, Pt, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from .database import Base, engine, get_db
 from .models import (
@@ -520,3 +525,109 @@ async def cleanup_cover_images(user_id: str):
     if user_dir.exists():
         shutil.rmtree(user_dir)
     return {"status": "deleted"}
+
+
+@app.post("/cover/preview")
+async def create_cover_preview(
+    user_id: str = Query(..., alias="user_id"),
+    cover_data: dict = Body(...)
+):
+    """Generate a DOCX preview of the cover page."""
+    
+    user_dir = get_user_upload_dir(user_id, create=True)
+    
+    # Create a new Document
+    doc = Document()
+    
+    # Set margins (A4 standard margins: 1 inch = 2.54 cm)
+    section = doc.sections[0]
+    section.page_height = Inches(11.69)  # A4 height
+    section.page_width = Inches(8.27)    # A4 width
+    section.top_margin = Inches(1)
+    section.bottom_margin = Inches(1)
+    section.left_margin = Inches(1)
+    section.right_margin = Inches(1)
+    
+    # Add image if exists
+    image_url = cover_data.get('imageUrl', '')
+    if image_url:
+        # Extract the filename from the URL path
+        # URL format: /cover/uploads/{user_id}/{filename}
+        parts = image_url.split('/')
+        if len(parts) >= 3:
+            filename = parts[-1]
+            image_path = user_dir / filename
+            if image_path.exists():
+                # Add image, centered
+                paragraph = doc.add_paragraph()
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                run = paragraph.add_run()
+                run.add_picture(str(image_path), width=Inches(4))
+    
+    # Add spacing
+    doc.add_paragraph()
+    
+    # Add title
+    title = cover_data.get('title', 'Security Target Title')
+    title_para = doc.add_heading(title, level=1)
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    
+    # Add description
+    description = cover_data.get('description', '')
+    if description:
+        desc_para = doc.add_paragraph(description)
+        desc_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        doc.add_paragraph()
+    
+    # Add details table
+    table = doc.add_table(rows=4, cols=2)
+    table.style = 'Light Grid Accent 1'
+    
+    # Version
+    table.rows[0].cells[0].text = 'Version'
+    table.rows[0].cells[1].text = cover_data.get('version', '—')
+    
+    # Revision
+    table.rows[1].cells[0].text = 'Revision'
+    table.rows[1].cells[1].text = cover_data.get('revision', '—')
+    
+    # Manufacturer/Laboratory
+    table.rows[2].cells[0].text = 'Manufacturer/Laboratory'
+    table.rows[2].cells[1].text = cover_data.get('manufacturer', '—')
+    
+    # Date
+    table.rows[3].cells[0].text = 'Date'
+    date_value = cover_data.get('date', '—')
+    table.rows[3].cells[1].text = date_value
+    
+    # Save the document
+    docx_filename = f"cover_preview_{uuid.uuid4().hex}.docx"
+    docx_path = user_dir / docx_filename
+    doc.save(str(docx_path))
+    
+    # Return the path to access the DOCX
+    return {"path": f"/cover/uploads/{user_id}/{docx_filename}"}
+
+
+@app.get("/cover/preview/{user_id}/{filename}")
+async def get_cover_preview(user_id: str, filename: str):
+    """Serve the generated DOCX file."""
+    
+    user_dir = get_user_upload_dir(user_id, create=False)
+    docx_path = user_dir / filename
+    
+    if not docx_path.exists() or not docx_path.is_file():
+        raise HTTPException(status_code=404, detail="Preview file not found")
+    
+    # Read the file
+    with open(docx_path, 'rb') as f:
+        content = f.read()
+    
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Content-Disposition": f"inline; filename=cover_preview.docx"
+        }
+    )
+
