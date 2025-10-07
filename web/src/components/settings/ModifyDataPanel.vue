@@ -77,7 +77,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import api from '../services/api'
+import api from '../../services/api'
 
 type Item = { 
   id: number, 

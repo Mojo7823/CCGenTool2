@@ -128,7 +128,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import api from '../services/api'
+import api from '../../services/api'
 import type { Header } from 'vue3-easy-data-table'
 import EasyDataTable from 'vue3-easy-data-table'
 import 'vue3-easy-data-table/dist/style.css'

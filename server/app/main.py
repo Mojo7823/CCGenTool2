@@ -1,10 +1,16 @@
 import os
+import re
+import shutil
+import tempfile
 import time
+import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -29,6 +35,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="CCGenTool2 API", lifespan=lifespan)
+
+COVER_UPLOAD_ROOT = Path(os.getenv("COVER_UPLOAD_DIR", Path(tempfile.gettempdir()) / "ccgentool2_cover_uploads"))
+COVER_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+
+USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def get_user_upload_dir(user_id: str, *, create: bool = False) -> Path:
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+
+    user_dir = COVER_UPLOAD_ROOT / user_id
+    if create:
+        user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir
 
 # CORS configuration: prefer regex if provided to allow any LAN IP on port 5173
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
@@ -55,6 +76,8 @@ else:
         allow_origins=origins,
         **cors_kwargs,
     )
+
+app.mount("/cover/uploads", StaticFiles(directory=str(COVER_UPLOAD_ROOT)), name="cover-uploads")
 
 
 @app.get("/health")
@@ -439,11 +462,61 @@ def delete_family_component(table_name: str, item_id: int, db: Session = Depends
     model = get_family_table_model(table_name)
     if not model:
         raise HTTPException(status_code=404, detail="Table not found")
-    
+
     item = db.get(model, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Not found")
-    
+
     db.delete(item)
     db.commit()
     return None
+
+
+@app.post("/cover/upload")
+async def upload_cover_image(
+    user_id: str = Query(..., alias="user_id"),
+    file: UploadFile = File(...),
+):
+    """Store a temporary cover image for a user session."""
+
+    user_dir = get_user_upload_dir(user_id, create=True)
+
+    allowed_types = {"image/jpeg", "image/png", "image/bmp", "image/x-ms-bmp"}
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Only jpg, jpeg, png, or bmp files are allowed.")
+
+    # Determine file extension based on mime type to avoid trusting filename blindly
+    extension_map = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/bmp": ".bmp",
+        "image/x-ms-bmp": ".bmp",
+    }
+    suffix = extension_map[file.content_type]
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    # Remove any existing files for the session to keep storage minimal
+    if user_dir.exists():
+        for existing in user_dir.iterdir():
+            if existing.is_file():
+                existing.unlink()
+
+    filename = f"{uuid.uuid4().hex}{suffix}"
+    destination = user_dir / filename
+    with destination.open("wb") as buffer:
+        buffer.write(data)
+
+    return {"path": f"/cover/uploads/{user_id}/{filename}"}
+
+
+@app.delete("/cover/upload/{user_id}")
+async def cleanup_cover_images(user_id: str):
+    """Delete all temporary cover images associated with a user session."""
+
+    user_dir = get_user_upload_dir(user_id, create=False)
+    if user_dir.exists():
+        shutil.rmtree(user_dir)
+    return {"status": "deleted"}
