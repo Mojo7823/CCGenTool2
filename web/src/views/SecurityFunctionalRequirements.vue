@@ -20,6 +20,14 @@
           >
             Clear Data
           </button>
+          <button
+            class="btn"
+            @click="openPreviewModal"
+            :disabled="sfrList.length === 0"
+            title="Preview Security Functional Requirements"
+          >
+            Preview
+          </button>
         </div>
       </div>
       
@@ -47,26 +55,6 @@
           </tbody>
         </table>
       </div>
-    </div>
-
-    <!-- Resizable Separator -->
-    <div class="separator-container">
-      <div 
-        class="resizable-separator"
-        @mousedown="startResize"
-        title="Drag to resize"
-      >
-        <div class="separator-line"></div>
-        <div class="separator-handle">⋮⋮⋮</div>
-      </div>
-    </div>
-
-    <!-- Preview Section -->
-    <div class="sfr-preview-section" ref="previewSection">
-      <div class="sfr-preview-header">
-        <h3>Security Functional Requirement Preview</h3>
-      </div>
-      <div class="sfr-preview-content" v-html="selectedSfrPreview"></div>
     </div>
 
     <!-- Add SFR Modal -->
@@ -225,6 +213,21 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showPreviewModal" class="modal-overlay" @click="closePreviewModal">
+      <div class="modal-content preview-modal" @click.stop>
+        <div class="modal-header">
+          <h3>Security Functional Requirement Preview</h3>
+          <button class="modal-close" type="button" @click="closePreviewModal">&times;</button>
+        </div>
+        <div class="preview-modal-body">
+          <div class="preview-modal-scroll" v-html="selectedSfrPreview"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" type="button" @click="closePreviewModal">Close</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -256,15 +259,19 @@ type SfrSource = 'database' | 'custom'
 
 interface SfrMetadata {
   classLabel?: string
+  classDescription?: string
   customClassInput?: string
   customComponentInput?: string
+  componentKey?: string
 }
 
 interface SfrEntry {
   id: number
   className: string
   classCode: string
+  classDescription: string
   componentId: string
+  componentKey: string
   componentName: string
   previewContent: string
   originalClass: string
@@ -275,6 +282,7 @@ interface SfrEntry {
 // Modal state
 const showAddModal = ref(false)
 const showCustomModal = ref(false)
+const showPreviewModal = ref(false)
 const editingMode = ref<SfrSource | null>(null)
 const editingSfrId = ref<number | null>(null)
 
@@ -303,6 +311,7 @@ const filteredUniqueComponents = ref<ComponentOption[]>([])
 const searchInput = ref<HTMLInputElement | null>(null)
 const searchDropdownVisible = ref(false)
 const highlightedClassIndex = ref(0)
+const shouldResetSearch = ref(false)
 
 // Custom SFR inputs
 const customClassInput = ref('')
@@ -312,8 +321,6 @@ const customComponentInput = ref('')
 const sfrList = ref<SfrEntry[]>([])
 const selectedSfrId = ref<number | null>(null)
 const selectedSfrPreview = ref('')
-const previewSection = ref<HTMLDivElement | null>(null)
-const isResizing = ref(false)
 const nextSfrId = ref(1)
 
 // Session management
@@ -331,6 +338,35 @@ const cleanClassDescription = (description: string) =>
   description.replace(/\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
 
 const formatClassCode = (name: string) => name.replace('_db', '').toUpperCase()
+
+const uppercaseLeadingIdentifier = (value: string) =>
+  value.replace(/^([a-z][a-z0-9_.-]*)/i, match => match.toUpperCase())
+
+const normalizeComponentId = (value: string) => value.trim().toUpperCase()
+
+const deriveClassDescriptionFromLabel = (label: string) => {
+  const colonIndex = label.indexOf(':')
+  if (colonIndex !== -1) {
+    return label.slice(colonIndex + 1).trim()
+  }
+  return cleanClassDescription(label)
+}
+
+const getClassDescriptionForEntry = (entry: { classDescription?: string; className?: string; metadata?: SfrMetadata }) => {
+  if (entry.classDescription) {
+    return entry.classDescription
+  }
+  if (entry.metadata?.classDescription) {
+    return entry.metadata.classDescription
+  }
+  if (entry.metadata?.classLabel) {
+    return deriveClassDescriptionFromLabel(entry.metadata.classLabel)
+  }
+  if (entry.className) {
+    return deriveClassDescriptionFromLabel(entry.className)
+  }
+  return ''
+}
 
 const getClassMetadata = (cls: SfrClass) => {
   const code = formatClassCode(cls.name)
@@ -422,6 +458,7 @@ const resetAddModalState = () => {
   highlightedClassIndex.value = 0
   searchDropdownVisible.value = false
   showColorPicker.value = false
+  shouldResetSearch.value = false
 
   if (previewEditor.value) {
     previewEditor.value.innerHTML = ''
@@ -476,11 +513,16 @@ const closeCustomModal = () => {
 }
 
 const onSearchInput = () => {
+  shouldResetSearch.value = false
   filterSfrData()
   searchDropdownVisible.value = true
 }
 
 const openSearchDropdown = () => {
+  if (shouldResetSearch.value) {
+    searchQuery.value = ''
+    shouldResetSearch.value = false
+  }
   filterSfrData()
   searchDropdownVisible.value = true
 }
@@ -565,6 +607,7 @@ const selectSfrClass = async (cls: SfrClass, options: { preservePreview?: boolea
   const classMeta = getClassMetadata(cls)
   selectedClassLabel.value = classMeta.display
   searchQuery.value = classMeta.display
+  shouldResetSearch.value = true
   filterSfrData()
   searchDropdownVisible.value = false
   highlightedClassIndex.value = 0
@@ -630,13 +673,16 @@ const onComponentChange = async () => {
 
     for (const item of componentData) {
       if (item.element && item.element_item) {
-        content += `<p><strong>${item.element}</strong> ${item.element_item}</p>`
+        const heading = uppercaseLeadingIdentifier(item.element)
+        const detail = item.element_item
+        content += `<p><strong>${heading}</strong> ${detail}</p>`
 
         try {
           const elementResponse = await api.get(`/element-lists/formatted/${item.element}`)
           if (elementResponse.data && elementResponse.data.items && elementResponse.data.items.length > 0) {
             elementResponse.data.items.forEach(subItem => {
-              content += `<p style="margin-left: 20px;">${subItem}</p>`
+              const normalized = uppercaseLeadingIdentifier(String(subItem))
+              content += `<p style="margin-left: 20px;">${normalized}</p>`
             })
           }
         } catch (elementError) {
@@ -698,6 +744,18 @@ const toggleColorPicker = (target: 'standard' | 'custom') => {
   }
 }
 
+const isDuplicateSfr = (classCode: string, componentId: string, excludeId: number | null = null) => {
+  const normalizedClassCode = classCode.trim().toUpperCase()
+  const normalizedComponentId = componentId.trim().toUpperCase()
+
+  return sfrList.value.some(sfr => {
+    const sameClass = sfr.classCode.trim().toUpperCase() === normalizedClassCode
+    const sameComponent = sfr.componentId.trim().toUpperCase() === normalizedComponentId
+    const differentEntry = excludeId === null || sfr.id !== excludeId
+    return sameClass && sameComponent && differentEntry
+  })
+}
+
 const finalizeSFR = async () => {
   if (!selectedClass.value || !selectedComponent.value) {
     alert('Please select an SFR class and component before finalizing.')
@@ -718,17 +776,29 @@ const finalizeSFR = async () => {
     return
   }
 
+  const componentKey = selectedComponent.value
+  const componentId = normalizeComponentId(componentKey)
+
+  if (isDuplicateSfr(classMeta.code, componentId, editingMode.value === 'database' ? editingSfrId.value : null)) {
+    alert('This SFR component has already been added.')
+    return
+  }
+
   const entry: SfrEntry = {
     id: editingMode.value === 'database' && editingSfrId.value !== null ? editingSfrId.value : nextSfrId.value++,
     className: classMeta.display,
     classCode: classMeta.code,
-    componentId: selectedComponent.value,
+    classDescription: classMeta.description,
+    componentId,
+    componentKey,
     componentName: selectedComponentObj.component_name,
     previewContent: previewContent.value,
     originalClass: selectedClass.value,
     source: 'database',
     metadata: {
-      classLabel: classMeta.display
+      classLabel: classMeta.display,
+      classDescription: classMeta.description,
+      componentKey,
     }
   }
 
@@ -757,19 +827,36 @@ const finalizeCustomSFR = () => {
   const classMeta = parseCustomClassInput(customClassInput.value)
   const componentMeta = parseCustomComponentInput(customComponentInput.value)
 
+  const componentKey = componentMeta.id.trim()
+  const componentId = normalizeComponentId(componentKey || componentMeta.id)
+
+  if (!componentId) {
+    alert('Please provide a valid component identifier for the custom SFR.')
+    return
+  }
+
+  if (isDuplicateSfr(classMeta.code, componentId, editingMode.value === 'custom' ? editingSfrId.value : null)) {
+    alert('This SFR component has already been added.')
+    return
+  }
+
   const entry: SfrEntry = {
     id: editingMode.value === 'custom' && editingSfrId.value !== null ? editingSfrId.value : nextSfrId.value++,
     className: classMeta.display,
     classCode: classMeta.code,
-    componentId: componentMeta.id,
+    classDescription: classMeta.description,
+    componentId,
+    componentKey: componentKey || componentId,
     componentName: componentMeta.name,
     previewContent: customPreviewContent.value,
     originalClass: classMeta.raw,
     source: 'custom',
     metadata: {
       classLabel: classMeta.display,
+      classDescription: classMeta.description,
       customClassInput: classMeta.raw,
-      customComponentInput: componentMeta.display
+      customComponentInput: componentMeta.display,
+      componentKey: componentKey || componentId,
     }
   }
 
@@ -803,12 +890,12 @@ const updatePreviewForAllSfrs = () => {
     return
   }
 
-  const sfrsByClass: Record<string, { className: string; sfrs: SfrEntry[] }> = {}
+  const sfrsByClass: Record<string, { classDescription: string; sfrs: SfrEntry[] }> = {}
   sfrList.value.forEach(sfr => {
     const key = sfr.classCode || 'UNKNOWN'
     if (!sfrsByClass[key]) {
       sfrsByClass[key] = {
-        className: sfr.className,
+        classDescription: getClassDescriptionForEntry(sfr),
         sfrs: []
       }
     }
@@ -820,16 +907,18 @@ const updatePreviewForAllSfrs = () => {
 
   Object.keys(sfrsByClass).forEach(classCode => {
     const classData = sfrsByClass[classCode]
+    const classDescription = classData.classDescription || classCode
 
     allSfrSections += `
-<h5>5.1.${classIndex} ${classCode}: ${classData.className}</h5>
+<h5>5.1.${classIndex} ${classCode}: ${classDescription}</h5>
 `
 
     let componentIndex = 1
     classData.sfrs.forEach(sfr => {
+      const componentId = normalizeComponentId(sfr.componentId)
       const componentTitle = sfr.componentName
-        ? `${sfr.componentId} : ${sfr.componentName}`
-        : sfr.componentId
+        ? `${componentId} : ${sfr.componentName}`
+        : componentId
       allSfrSections += `
 <h6>5.1.${classIndex}.${componentIndex} ${componentTitle}</h6>
 <div style="margin-left: 20px;">
@@ -855,6 +944,15 @@ const removeSFR = () => {
     updatePreviewForAllSfrs()
     saveSessionData()
   }
+}
+
+const openPreviewModal = () => {
+  updatePreviewForAllSfrs()
+  showPreviewModal.value = true
+}
+
+const closePreviewModal = () => {
+  showPreviewModal.value = false
 }
 
 const saveSessionData = () => {
@@ -890,11 +988,41 @@ const loadSessionData = () => {
     sfrList.value = (sessionData.sfrList || []).map((item: any) => {
       const source: SfrSource = item.source === 'custom' ? 'custom' : 'database'
       const metadata: SfrMetadata = item.metadata || {}
+      const classCode = deriveClassCodeForEntry({ ...item, source })
+      const classDescription = getClassDescriptionForEntry({ ...item, metadata })
+
+      let componentKey = item.componentKey || metadata.componentKey || ''
+      if (!componentKey && metadata.customComponentInput) {
+        componentKey = parseCustomComponentInput(metadata.customComponentInput).id
+      }
+      if (!componentKey && typeof item.componentId === 'string') {
+        componentKey = item.componentId
+      }
+
+      const normalizedComponentId = typeof item.componentId === 'string' && item.componentId
+        ? normalizeComponentId(item.componentId)
+        : componentKey
+          ? normalizeComponentId(componentKey)
+          : ''
+
+      const mergedMetadata: SfrMetadata = {
+        ...metadata,
+        classDescription,
+        componentKey: componentKey || metadata.componentKey,
+      }
+
+      if (!mergedMetadata.classLabel && item.className) {
+        mergedMetadata.classLabel = item.className
+      }
+
       return {
         ...item,
         source,
-        classCode: deriveClassCodeForEntry({ ...item, source }),
-        metadata
+        classCode,
+        classDescription,
+        componentKey: componentKey || normalizedComponentId,
+        componentId: normalizedComponentId || '',
+        metadata: mergedMetadata,
       } as SfrEntry
     })
 
@@ -912,6 +1040,7 @@ const clearSessionData = () => {
     selectedSfrId.value = null
     nextSfrId.value = 1
     updatePreviewForAllSfrs()
+    showPreviewModal.value = false
     console.log('Session data cleared')
   }
 }
@@ -934,6 +1063,7 @@ const editSelectedSfr = async () => {
     selectedClass.value = sfr.originalClass
     selectedClassLabel.value = sfr.metadata?.classLabel ?? sfr.className
     searchQuery.value = sfr.metadata?.classLabel ?? sfr.className
+    shouldResetSearch.value = true
     filterSfrData()
 
     showAddModal.value = true
@@ -946,7 +1076,10 @@ const editSelectedSfr = async () => {
       await onClassChange({ preservePreview: true })
     }
 
-    selectedComponent.value = sfr.componentId
+    const matchingComponent = uniqueComponents.value.find(
+      comp => normalizeComponentId(comp.component) === sfr.componentId
+    )
+    selectedComponent.value = matchingComponent ? matchingComponent.component : sfr.componentKey
     filteredUniqueComponents.value = [...uniqueComponents.value]
     previewContent.value = sfr.previewContent
     await nextTick()
@@ -970,36 +1103,6 @@ const editSelectedSfr = async () => {
       customPreviewEditor.value.focus()
     }
   }
-}
-
-const startResize = (event: MouseEvent) => {
-  isResizing.value = true
-  document.addEventListener('mousemove', handleResize)
-  document.addEventListener('mouseup', stopResize)
-  event.preventDefault()
-}
-
-const handleResize = (event: MouseEvent) => {
-  if (!isResizing.value) return
-
-  const container = document.querySelector('.sfr-container') as HTMLElement | null
-  if (!container) return
-
-  const rect = container.getBoundingClientRect()
-  const newHeight = event.clientY - rect.top - 100
-
-  if (newHeight > 150 && newHeight < window.innerHeight - 300) {
-    const tableSection = document.querySelector('.sfr-table-section') as HTMLElement | null
-    if (tableSection) {
-      tableSection.style.height = `${newHeight}px`
-    }
-  }
-}
-
-const stopResize = () => {
-  isResizing.value = false
-  document.removeEventListener('mousemove', handleResize)
-  document.removeEventListener('mouseup', stopResize)
 }
 
 watch(showAddModal, value => {
@@ -1041,15 +1144,15 @@ onMounted(async () => {
 .sfr-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 150px);
-  gap: 0;
+  gap: 24px;
+  min-height: calc(100vh - 150px);
 }
 
 .sfr-table-section {
-  min-height: 300px;
-  height: 45vh;
+  flex: 1;
+  min-height: 360px;
   border: 1px solid #374151;
-  border-radius: 8px 8px 0 0;
+  border-radius: 8px;
   background: var(--panel);
   display: flex;
   flex-direction: column;
@@ -1135,84 +1238,63 @@ onMounted(async () => {
   padding: 40px;
 }
 
-.separator-container {
-  height: 10px;
+.modal-header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  justify-content: center;
-  background: var(--bg);
-  border-left: 1px solid #374151;
-  border-right: 1px solid #374151;
-  position: relative;
+  margin-bottom: 16px;
 }
 
-.resizable-separator {
-  width: 100%;
-  height: 10px;
-  cursor: ns-resize;
+.modal-header h3 {
+  margin: 0;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.modal-footer {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-soft);
-  position: relative;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 
-.separator-line {
-  width: 100%;
-  height: 2px;
-  background: #374151;
-}
-
-.separator-handle {
-  position: absolute;
-  color: #6B7280;
-  font-size: 10px;
-  letter-spacing: -1px;
-  background: var(--bg-soft);
-  padding: 0 8px;
-}
-
-.resizable-separator:hover {
-  background: var(--primary);
-}
-
-.resizable-separator:hover .separator-handle {
-  color: white;
-}
-
-.sfr-preview-section {
-  flex: 1;
-  min-height: 300px;
-  border: 1px solid #374151;
-  border-radius: 0 0 8px 8px;
-  border-top: none;
-  background: var(--panel);
+.preview-modal {
+  padding: 0;
   display: flex;
   flex-direction: column;
+  max-width: 960px;
+  width: 95vw;
+  max-height: 90vh;
+  overflow: hidden;
 }
 
-.sfr-preview-header {
-  padding: 16px 20px;
+.preview-modal .modal-header {
+  padding: 16px 24px;
   border-bottom: 1px solid #374151;
   background: var(--bg-soft);
 }
 
-.sfr-preview-header h3 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.sfr-preview-content {
+.preview-modal-body {
   flex: 1;
-  padding: 20px;
   overflow: auto;
   background: var(--bg);
-  border-radius: 0 0 8px 8px;
+}
+
+.preview-modal-scroll {
+  padding: 24px;
+  background: var(--panel);
+  min-height: 60vh;
   line-height: 1.6;
 }
 
-.sfr-preview-content h4 {
+.preview-modal-scroll h4 {
   color: var(--text-bright);
   margin-top: 0;
   margin-bottom: 16px;
@@ -1221,7 +1303,7 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.sfr-preview-content h5 {
+.preview-modal-scroll h5 {
   color: var(--text-bright);
   margin-top: 24px;
   margin-bottom: 12px;
@@ -1230,7 +1312,7 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.sfr-preview-content h6 {
+.preview-modal-scroll h6 {
   color: var(--text-bright);
   margin-top: 20px;
   margin-bottom: 10px;
@@ -1239,7 +1321,7 @@ onMounted(async () => {
   font-weight: 600;
 }
 
-.sfr-preview-content p {
+.preview-modal-scroll p {
   margin-bottom: 12px;
   color: var(--text);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -1247,13 +1329,13 @@ onMounted(async () => {
   line-height: 1.6;
 }
 
-.sfr-preview-content strong {
+.preview-modal-scroll strong {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   font-weight: 600;
   color: var(--text-bright);
 }
 
-.sfr-preview-content em {
+.preview-modal-scroll em {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   font-style: italic;
 }

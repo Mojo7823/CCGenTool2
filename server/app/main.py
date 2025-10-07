@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import time
 import uuid
+from datetime import datetime
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
@@ -13,6 +14,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+
+from docx import Document
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+from docx.shared import Mm, Pt
 
 from .database import Base, engine, get_db
 from .models import (
@@ -24,6 +29,7 @@ from .schemas import (
     ComponentFamilyOut, ElementListOut
 )
 from .xml_parser_service import XmlParserService
+from pydantic import BaseModel, Field, ConfigDict
 
 
 @asynccontextmanager
@@ -38,6 +44,8 @@ app = FastAPI(title="CCGenTool2 API", lifespan=lifespan)
 
 COVER_UPLOAD_ROOT = Path(os.getenv("COVER_UPLOAD_DIR", Path(tempfile.gettempdir()) / "ccgentool2_cover_uploads"))
 COVER_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+COVER_DOCX_ROOT = Path(os.getenv("COVER_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_cover_docx"))
+COVER_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -50,6 +58,113 @@ def get_user_upload_dir(user_id: str, *, create: bool = False) -> Path:
     if create:
         user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir
+
+
+def get_user_docx_dir(user_id: str, *, create: bool = False) -> Path:
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+
+    user_dir = COVER_DOCX_ROOT / user_id
+    if create:
+        user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir
+
+
+class CoverPreviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    title: Optional[str] = None
+    version: Optional[str] = None
+    revision: Optional[str] = None
+    description: Optional[str] = None
+    manufacturer: Optional[str] = None
+    date: Optional[str] = None
+    image_path: Optional[str] = Field(None, alias="image_path")
+
+
+def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Optional[Path]:
+    if not image_path:
+        return None
+
+    expected_prefix = f"/cover/uploads/{user_id}/"
+    if not image_path.startswith(expected_prefix):
+        raise HTTPException(status_code=400, detail="Invalid image reference for preview generation")
+
+    filename = Path(image_path).name
+    upload_dir = get_user_upload_dir(user_id, create=False)
+    image_file = upload_dir / filename
+    if not image_file.exists():
+        raise HTTPException(status_code=400, detail="Referenced cover image could not be found")
+    return image_file
+
+
+def _format_cover_date(date_value: Optional[str]) -> str:
+    if not date_value:
+        return "—"
+
+    try:
+        parsed = datetime.fromisoformat(date_value)
+        return parsed.strftime("%d %B %Y")
+    except ValueError:
+        return date_value
+
+
+def _build_cover_document(payload: CoverPreviewRequest) -> Path:
+    image_file = _resolve_uploaded_image_path(payload.image_path, payload.user_id)
+    docx_dir = get_user_docx_dir(payload.user_id, create=True)
+
+    # Clear previous previews for the user to avoid stale documents piling up
+    for existing in docx_dir.glob("*.docx"):
+        existing.unlink(missing_ok=True)
+
+    document = Document()
+    section = document.sections[0]
+    section.page_height = Mm(297)
+    section.page_width = Mm(210)
+    section.top_margin = Mm(20)
+    section.bottom_margin = Mm(20)
+    section.left_margin = Mm(25)
+    section.right_margin = Mm(25)
+
+    if image_file:
+        image_paragraph = document.add_paragraph()
+        image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        run = image_paragraph.add_run()
+        run.add_picture(str(image_file), width=Mm(120))
+        image_paragraph.space_after = Pt(12)
+
+    title_text = payload.title.strip() if payload.title else "Security Target Title"
+    title_paragraph = document.add_paragraph()
+    title_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    title_run = title_paragraph.add_run(title_text)
+    title_run.font.size = Pt(24)
+    title_run.font.bold = True
+    title_paragraph.space_after = Pt(12)
+
+    if payload.description:
+        description_paragraph = document.add_paragraph(payload.description.strip())
+        description_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        description_paragraph.space_after = Pt(18)
+
+    info_items = [
+        ("Version", payload.version.strip() if payload.version else "—"),
+        ("Revision", payload.revision.strip() if payload.revision else "—"),
+        ("Manufacturer/Laboratory", payload.manufacturer.strip() if payload.manufacturer else "—"),
+        ("Date", _format_cover_date(payload.date)),
+    ]
+
+    for label, value in info_items:
+        paragraph = document.add_paragraph()
+        paragraph.space_after = Pt(6)
+        run_label = paragraph.add_run(f"{label}: ")
+        run_label.font.bold = True
+        paragraph.add_run(value)
+
+    filename = f"{uuid.uuid4().hex}.docx"
+    output_path = docx_dir / filename
+    document.save(str(output_path))
+    return output_path
 
 # CORS configuration: prefer regex if provided to allow any LAN IP on port 5173
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
@@ -78,6 +193,7 @@ else:
     )
 
 app.mount("/cover/uploads", StaticFiles(directory=str(COVER_UPLOAD_ROOT)), name="cover-uploads")
+app.mount("/cover/docx", StaticFiles(directory=str(COVER_DOCX_ROOT)), name="cover-docx")
 
 
 @app.get("/health")
@@ -512,6 +628,18 @@ async def upload_cover_image(
     return {"path": f"/cover/uploads/{user_id}/{filename}"}
 
 
+@app.post("/cover/preview")
+async def generate_cover_preview(payload: CoverPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    # Ensure the upload directory exists to maintain parity with the image uploads
+    get_user_upload_dir(payload.user_id, create=True)
+
+    output_path = _build_cover_document(payload)
+    return {"path": f"/cover/docx/{payload.user_id}/{output_path.name}"}
+
+
 @app.delete("/cover/upload/{user_id}")
 async def cleanup_cover_images(user_id: str):
     """Delete all temporary cover images associated with a user session."""
@@ -519,4 +647,17 @@ async def cleanup_cover_images(user_id: str):
     user_dir = get_user_upload_dir(user_id, create=False)
     if user_dir.exists():
         shutil.rmtree(user_dir)
+    docx_dir = get_user_docx_dir(user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.delete("/cover/preview/{user_id}")
+async def cleanup_cover_preview(user_id: str):
+    """Delete generated cover preview documents for a user session."""
+
+    docx_dir = get_user_docx_dir(user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
     return {"status": "deleted"}
