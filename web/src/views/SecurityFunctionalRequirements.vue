@@ -10,6 +10,7 @@
         <div class="table-actions">
           <button class="btn primary" @click="openAddModal">Add SFR</button>
           <button class="btn secondary" @click="openCustomSfrModal">Add Custom SFR</button>
+          <button class="btn success" @click="openPreviewModal" :disabled="sfrList.length === 0">Preview</button>
           <button class="btn info" @click="editSelectedSfr" :disabled="!selectedSfrId">Edit Data</button>
           <button class="btn danger" @click="removeSFR" :disabled="!selectedSfrId">Remove SFR</button>
           <button
@@ -47,26 +48,6 @@
           </tbody>
         </table>
       </div>
-    </div>
-
-    <!-- Resizable Separator -->
-    <div class="separator-container">
-      <div 
-        class="resizable-separator"
-        @mousedown="startResize"
-        title="Drag to resize"
-      >
-        <div class="separator-line"></div>
-        <div class="separator-handle">⋮⋮⋮</div>
-      </div>
-    </div>
-
-    <!-- Preview Section -->
-    <div class="sfr-preview-section" ref="previewSection">
-      <div class="sfr-preview-header">
-        <h3>Security Functional Requirement Preview</h3>
-      </div>
-      <div class="sfr-preview-content" v-html="selectedSfrPreview"></div>
     </div>
 
     <!-- Add SFR Modal -->
@@ -225,6 +206,17 @@
         </div>
       </div>
     </div>
+
+    <!-- Preview SFR Modal -->
+    <div v-if="showPreviewModal" class="modal-overlay" @click="closePreviewModal">
+      <div class="modal-content modal-content-large" @click.stop>
+        <h3>Security Functional Requirement Preview</h3>
+        <div class="modal-preview-content" v-html="selectedSfrPreview"></div>
+        <div class="modal-actions">
+          <button class="btn" @click="closePreviewModal">Close</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -275,6 +267,7 @@ interface SfrEntry {
 // Modal state
 const showAddModal = ref(false)
 const showCustomModal = ref(false)
+const showPreviewModal = ref(false)
 const editingMode = ref<SfrSource | null>(null)
 const editingSfrId = ref<number | null>(null)
 
@@ -475,12 +468,25 @@ const closeCustomModal = () => {
   editingSfrId.value = null
 }
 
+const openPreviewModal = () => {
+  updatePreviewForAllSfrs()
+  showPreviewModal.value = true
+}
+
+const closePreviewModal = () => {
+  showPreviewModal.value = false
+}
+
 const onSearchInput = () => {
   filterSfrData()
   searchDropdownVisible.value = true
 }
 
 const openSearchDropdown = () => {
+  // Clear search query when user clicks to reopen search
+  if (searchQuery.value.trim() !== '') {
+    searchQuery.value = ''
+  }
   filterSfrData()
   searchDropdownVisible.value = true
 }
@@ -718,6 +724,19 @@ const finalizeSFR = async () => {
     return
   }
 
+  // Check for duplicates when adding (not editing)
+  if (editingMode.value !== 'database' || editingSfrId.value === null) {
+    const isDuplicate = sfrList.value.some(sfr => 
+      sfr.classCode === classMeta.code && 
+      sfr.componentId === selectedComponent.value
+    )
+    
+    if (isDuplicate) {
+      alert(`This SFR (${classMeta.code} - ${selectedComponent.value}) has already been added. You cannot add duplicate SFRs.`)
+      return
+    }
+  }
+
   const entry: SfrEntry = {
     id: editingMode.value === 'database' && editingSfrId.value !== null ? editingSfrId.value : nextSfrId.value++,
     className: classMeta.display,
@@ -756,6 +775,19 @@ const finalizeCustomSFR = () => {
 
   const classMeta = parseCustomClassInput(customClassInput.value)
   const componentMeta = parseCustomComponentInput(customComponentInput.value)
+
+  // Check for duplicates when adding (not editing)
+  if (editingMode.value !== 'custom' || editingSfrId.value === null) {
+    const isDuplicate = sfrList.value.some(sfr => 
+      sfr.classCode === classMeta.code && 
+      sfr.componentId === componentMeta.id
+    )
+    
+    if (isDuplicate) {
+      alert(`This SFR (${classMeta.code} - ${componentMeta.id}) has already been added. You cannot add duplicate SFRs.`)
+      return
+    }
+  }
 
   const entry: SfrEntry = {
     id: editingMode.value === 'custom' && editingSfrId.value !== null ? editingSfrId.value : nextSfrId.value++,
@@ -820,9 +852,23 @@ const updatePreviewForAllSfrs = () => {
 
   Object.keys(sfrsByClass).forEach(classCode => {
     const classData = sfrsByClass[classCode]
+    
+    // Clean up the className to avoid duplication like "FAU: FAU: Security audit"
+    let cleanedClassName = classData.className
+    const colonIndex = cleanedClassName.indexOf(':')
+    if (colonIndex !== -1) {
+      const prefix = cleanedClassName.slice(0, colonIndex).trim()
+      const afterColon = cleanedClassName.slice(colonIndex + 1).trim()
+      
+      // Check if the text after colon starts with the same prefix
+      if (afterColon.toUpperCase().startsWith(prefix.toUpperCase() + ':')) {
+        // Remove the duplicate prefix
+        cleanedClassName = `${prefix}: ${afterColon.slice(prefix.length + 1).trim()}`
+      }
+    }
 
     allSfrSections += `
-<h5>5.1.${classIndex} ${classCode}: ${classData.className}</h5>
+<h5>5.1.${classIndex} ${classCode}: ${cleanedClassName.includes(':') ? cleanedClassName.split(':')[1].trim() : cleanedClassName}</h5>
 `
 
     let componentIndex = 1
@@ -830,10 +876,21 @@ const updatePreviewForAllSfrs = () => {
       const componentTitle = sfr.componentName
         ? `${sfr.componentId} : ${sfr.componentName}`
         : sfr.componentId
+      
+      // Capitalize identifiers in the preview content
+      let capitalizedContent = sfr.previewContent
+      
+      // Pattern to match identifiers like fau_gen.1.1, fdp_acc.1.2, etc.
+      // This matches: word_word.number.number or word_word_word.number.number
+      const identifierPattern = /\b([a-z]{3}_[a-z_]+\.\d+\.\d+)\b/gi
+      capitalizedContent = capitalizedContent.replace(identifierPattern, (match) => {
+        return match.toUpperCase()
+      })
+      
       allSfrSections += `
 <h6>5.1.${classIndex}.${componentIndex} ${componentTitle}</h6>
 <div style="margin-left: 20px;">
-${sfr.previewContent}
+${capitalizedContent}
 </div>
 `
       componentIndex++
@@ -1041,15 +1098,14 @@ onMounted(async () => {
 .sfr-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 150px);
-  gap: 0;
+  gap: 16px;
 }
 
 .sfr-table-section {
   min-height: 300px;
-  height: 45vh;
+  height: calc(100vh - 250px);
   border: 1px solid #374151;
-  border-radius: 8px 8px 0 0;
+  border-radius: 8px;
   background: var(--panel);
   display: flex;
   flex-direction: column;
@@ -1539,6 +1595,83 @@ onMounted(async () => {
 
 .selected-class-display.placeholder {
   color: var(--text-muted);
+  font-style: italic;
+}
+
+.btn.success {
+  background: #10B981;
+  color: white;
+  border: 1px solid #059669;
+}
+
+.btn.success:hover:not(:disabled) {
+  background: #059669;
+}
+
+.btn.success:disabled {
+  background: #6B7280;
+  border-color: #6B7280;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.modal-content-large {
+  max-width: 1000px;
+}
+
+.modal-preview-content {
+  padding: 20px;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border-radius: 8px;
+  margin-top: 16px;
+  line-height: 1.6;
+}
+
+.modal-preview-content h4 {
+  color: var(--text-bright);
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.modal-preview-content h5 {
+  color: var(--text-bright);
+  margin-top: 24px;
+  margin-bottom: 12px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.modal-preview-content h6 {
+  color: var(--text-bright);
+  margin-top: 20px;
+  margin-bottom: 10px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.modal-preview-content p {
+  margin-bottom: 12px;
+  color: var(--text);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.modal-preview-content strong {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.modal-preview-content em {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   font-style: italic;
 }
 </style>
