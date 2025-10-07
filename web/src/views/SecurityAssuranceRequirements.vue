@@ -292,13 +292,15 @@ const escapeHtml = (value: string) =>
     .replace(/'/g, '&#39;')
 
 const formatAssuranceComponentLabel = (componentId: string, componentName?: string) => {
+  const uppercaseId = componentId.toUpperCase()
   const trimmedName = componentName?.trim()
-  return trimmedName ? `${componentId} : ${trimmedName}` : componentId
+  return trimmedName ? `${uppercaseId} : ${trimmedName}` : uppercaseId
 }
 
 const formatComponentHeading = (componentId: string, componentName?: string) => {
+  const uppercaseId = componentId.toUpperCase()
   const trimmedName = componentName?.trim()
-  return trimmedName ? `${componentId} – ${trimmedName}` : componentId
+  return trimmedName ? `${uppercaseId} – ${trimmedName}` : uppercaseId
 }
 
 const formatClassHeading = (className: string, classCode: string) => {
@@ -352,6 +354,7 @@ const filteredUniqueComponents = ref<ComponentOption[]>([])
 const searchInput = ref<HTMLInputElement | null>(null)
 const searchDropdownVisible = ref(false)
 const highlightedClassIndex = ref(0)
+const shouldResetSearch = ref(false)
 
 // Custom SAR inputs
 const customClassInput = ref('')
@@ -642,11 +645,16 @@ const closeCustomModal = () => {
 }
 
 const onSearchInput = () => {
+  shouldResetSearch.value = false
   filterSarData()
   searchDropdownVisible.value = true
 }
 
 const openSearchDropdown = () => {
+  if (shouldResetSearch.value) {
+    searchQuery.value = ''
+    shouldResetSearch.value = false
+  }
   filterSarData()
   searchDropdownVisible.value = true
 }
@@ -731,6 +739,7 @@ const selectSarClass = async (cls: SarClass, options: { preservePreview?: boolea
   const classMeta = getClassMetadata(cls)
   selectedClassLabel.value = classMeta.display
   searchQuery.value = classMeta.display
+  shouldResetSearch.value = true
   filterSarData()
   searchDropdownVisible.value = false
   highlightedClassIndex.value = 0
@@ -898,12 +907,16 @@ const finalizeSAR = async () => {
     }
   }
 
-  const duplicateClass = sarList.value.some(
-    existing => existing.classCode === entry.classCode && existing.id !== entry.id
+  // Check for duplicate component (not just class)
+  const duplicateComponent = sarList.value.some(
+    existing => 
+      existing.classCode === entry.classCode && 
+      existing.componentId.toUpperCase() === entry.componentId.toUpperCase() && 
+      existing.id !== entry.id
   )
 
-  if (duplicateClass) {
-    alert('Only one assurance component can be selected per SAR class. Please edit the existing entry to make changes.')
+  if (duplicateComponent) {
+    alert('This SAR component has already been added. Multiple components from the same class are allowed, but each component must be unique.')
     return
   }
 
@@ -948,12 +961,16 @@ const finalizeCustomSAR = () => {
     }
   }
 
-  const duplicateClass = sarList.value.some(
-    existing => existing.classCode === entry.classCode && existing.id !== entry.id
+  // Check for duplicate component (not just class)
+  const duplicateComponent = sarList.value.some(
+    existing => 
+      existing.classCode === entry.classCode && 
+      existing.componentId.toUpperCase() === entry.componentId.toUpperCase() && 
+      existing.id !== entry.id
   )
 
-  if (duplicateClass) {
-    alert('Only one assurance component can be selected per SAR class. Please edit the existing entry to make changes.')
+  if (duplicateComponent) {
+    alert('This SAR component has already been added. Multiple components from the same class are allowed, but each component must be unique.')
     return
   }
 
