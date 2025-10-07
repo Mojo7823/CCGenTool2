@@ -214,25 +214,34 @@
       </div>
     </div>
 
-    <div v-if="showPreviewModal" class="modal-overlay" @click="closePreviewModal">
-      <div class="modal-content preview-modal" @click.stop>
-        <div class="modal-header">
+    <div v-if="showPreviewModal" class="modal-overlay" @click.self="closePreviewModal">
+      <div class="modal-card docx-modal">
+        <header class="modal-header">
           <h3>Security Functional Requirement Preview</h3>
           <button class="modal-close" type="button" @click="closePreviewModal">&times;</button>
-        </div>
-        <div class="preview-modal-body">
-          <div class="preview-modal-scroll" v-html="selectedSfrPreview"></div>
-        </div>
-        <div class="modal-footer">
+        </header>
+        <section class="modal-body docx-modal-body">
+          <div class="docx-preview-shell">
+            <div v-if="previewLoading" class="modal-status overlay">Generating preview…</div>
+            <div v-else-if="previewError" class="modal-error">{{ previewError }}</div>
+            <div
+              ref="docxPreviewContainer"
+              class="docx-preview-container"
+              :class="{ hidden: previewLoading || !!previewError }"
+            ></div>
+          </div>
+        </section>
+        <footer class="modal-footer">
           <button class="btn" type="button" @click="closePreviewModal">Close</button>
-        </div>
+        </footer>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch, computed } from 'vue'
+import { ref, onMounted, nextTick, watch, computed, onBeforeUnmount } from 'vue'
+import { renderAsync } from 'docx-preview'
 import api from '../services/api'
 import { sessionService } from '../services/sessionService'
 
@@ -285,6 +294,9 @@ const showCustomModal = ref(false)
 const showPreviewModal = ref(false)
 const editingMode = ref<SfrSource | null>(null)
 const editingSfrId = ref<number | null>(null)
+const previewLoading = ref(false)
+const previewError = ref('')
+const generatedDocxPath = ref<string | null>(null)
 
 // Selected SFR data
 const selectedClass = ref('')
@@ -301,6 +313,7 @@ const uniqueComponents = ref<ComponentOption[]>([])
 // Editors
 const previewEditor = ref<HTMLDivElement | null>(null)
 const customPreviewEditor = ref<HTMLDivElement | null>(null)
+const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 const showColorPicker = ref(false)
 const showCustomColorPicker = ref(false)
 
@@ -674,7 +687,7 @@ const onComponentChange = async () => {
     for (const item of componentData) {
       if (item.element && item.element_item) {
         const heading = uppercaseLeadingIdentifier(item.element)
-        const detail = item.element_item
+        const detail = uppercaseLeadingIdentifier(item.element_item)
         content += `<p><strong>${heading}</strong> ${detail}</p>`
 
         try {
@@ -948,11 +961,92 @@ const removeSFR = () => {
 
 const openPreviewModal = () => {
   updatePreviewForAllSfrs()
+  if (!selectedSfrPreview.value.trim()) {
+    return
+  }
+
+  previewError.value = ''
+  previewLoading.value = true
   showPreviewModal.value = true
+  cleanupDocx()
+
+  api
+    .post('/security/sfr/preview', {
+      user_id: userToken.value,
+      html_content: selectedSfrPreview.value
+    })
+    .then(async response => {
+      const path: string | undefined = response.data?.path
+      if (!path) {
+        throw new Error('Preview generation did not return a document path.')
+      }
+      generatedDocxPath.value = path
+      await nextTick()
+      await renderDocxPreview(path)
+    })
+    .catch((error: any) => {
+      previewError.value = error?.response?.data?.detail || error?.message || 'Unable to generate preview.'
+    })
+    .finally(() => {
+      previewLoading.value = false
+    })
 }
 
 const closePreviewModal = () => {
   showPreviewModal.value = false
+  if (!previewLoading.value) {
+    previewError.value = ''
+    cleanupDocx()
+  }
+}
+
+const renderDocxPreview = async (path: string) => {
+  if (!docxPreviewContainer.value) return
+
+  try {
+    docxPreviewContainer.value.innerHTML = ''
+    const response = await api.get(path, { responseType: 'arraybuffer' })
+    const buffer = response.data as ArrayBuffer
+    await renderAsync(buffer, docxPreviewContainer.value, undefined, {
+      className: 'docx-rendered',
+      inWrapper: true,
+      ignoreWidth: false,
+      ignoreHeight: false,
+      useBase64URL: true
+    })
+  } catch (error: any) {
+    previewError.value = error?.message || 'Failed to render DOCX preview.'
+  }
+}
+
+const cleanupDocx = (keepalive = false) => {
+  if (!userToken.value) {
+    return
+  }
+
+  if (!generatedDocxPath.value && !keepalive) {
+    return
+  }
+
+  const url = api.getUri({ url: `/security/sfr/preview/${encodeURIComponent(userToken.value)}` })
+  fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
+  generatedDocxPath.value = null
+}
+
+const handleBeforeUnload = () => {
+  cleanupDocx(true)
+}
+
+const handlePageHide = () => {
+  cleanupDocx(true)
+}
+
+const removeEventListeners = () => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('pagehide', handlePageHide)
 }
 
 const saveSessionData = () => {
@@ -1041,6 +1135,8 @@ const clearSessionData = () => {
     nextSfrId.value = 1
     updatePreviewForAllSfrs()
     showPreviewModal.value = false
+    previewError.value = ''
+    cleanupDocx()
     console.log('Session data cleared')
   }
 }
@@ -1118,6 +1214,12 @@ watch(showCustomModal, value => {
   }
 })
 
+watch(previewLoading, value => {
+  if (!value && !showPreviewModal.value) {
+    cleanupDocx()
+  }
+})
+
 onMounted(async () => {
   loadSessionData()
 
@@ -1137,6 +1239,16 @@ onMounted(async () => {
   }
 
   console.log(`Session initialized for user: ${userToken.value}`)
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('pagehide', handlePageHide)
+  }
+})
+
+onBeforeUnmount(() => {
+  cleanupDocx()
+  removeEventListeners()
 })
 </script>
 
@@ -1265,79 +1377,91 @@ onMounted(async () => {
   margin-top: 16px;
 }
 
-.preview-modal {
-  padding: 0;
+.modal-card {
+  background: var(--panel);
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  width: min(920px, 90vw);
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
-  max-width: 960px;
-  width: 95vw;
-  max-height: 90vh;
-  overflow: hidden;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.45);
 }
 
-.preview-modal .modal-header {
+.modal-card .modal-header {
   padding: 16px 24px;
   border-bottom: 1px solid #374151;
   background: var(--bg-soft);
+  margin-bottom: 0;
 }
 
-.preview-modal-body {
+.modal-card .modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #374151;
+  background: var(--bg-soft);
+  margin-top: 0;
+}
+
+.docx-modal-body {
   flex: 1;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
   background: var(--bg);
 }
 
-.preview-modal-scroll {
+.modal-status,
+.modal-error {
   padding: 24px;
-  background: var(--panel);
-  min-height: 60vh;
-  line-height: 1.6;
-}
-
-.preview-modal-scroll h4 {
-  color: var(--text-bright);
-  margin-top: 0;
-  margin-bottom: 16px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 18px;
+  text-align: center;
   font-weight: 600;
 }
 
-.preview-modal-scroll h5 {
-  color: var(--text-bright);
-  margin-top: 24px;
-  margin-bottom: 12px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 16px;
-  font-weight: 600;
+.modal-status.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.75);
+  color: #f9fafb;
+  letter-spacing: 0.02em;
 }
 
-.preview-modal-scroll h6 {
-  color: var(--text-bright);
-  margin-top: 20px;
-  margin-bottom: 10px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 14px;
-  font-weight: 600;
+.modal-error {
+  color: #f87171;
 }
 
-.preview-modal-scroll p {
-  margin-bottom: 12px;
-  color: var(--text);
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 13px;
-  line-height: 1.6;
+.docx-preview-shell {
+  flex: 1;
+  position: relative;
+  padding: 24px;
+  background: linear-gradient(135deg, #c7d2fe 0%, #cbd5f5 100%);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow: auto;
 }
 
-.preview-modal-scroll strong {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-weight: 600;
-  color: var(--text-bright);
+.docx-preview-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 
-.preview-modal-scroll em {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-style: italic;
+.docx-preview-container.hidden {
+  display: none;
+}
+
+.docx-preview-container .docx-wrapper {
+  margin: 0 auto;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.35);
+  border-radius: 4px;
+}
+
+.docx-preview-container .docx-wrapper .docx {
+  background: white;
+  border-radius: 2px;
 }
 
 .btn.danger {

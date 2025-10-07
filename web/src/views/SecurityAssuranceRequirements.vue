@@ -8,18 +8,34 @@
       <div class="sar-table-header">
         <h3>Security Assurance Requirements</h3>
         <div class="table-actions">
-          <button class="btn primary" @click="openAddModal" title="Create a new Security Assurance Requirement">Add SAR</button>
-          <button class="btn secondary" @click="openCustomSarModal">Add Custom SAR</button>
-          <button class="btn info" @click="editSelectedSar" :disabled="!selectedSarId">Edit Data</button>
-          <button class="btn danger" @click="removeSAR" :disabled="!selectedSarId">Remove SAR</button>
-          <button
-            class="btn warning"
-            @click="clearSessionData"
-            :disabled="sarList.length === 0"
-            title="Clear all SAR data"
-          >
-            Clear Data
-          </button>
+          <div class="table-action-buttons">
+            <button class="btn primary" @click="openAddModal" title="Create a new Security Assurance Requirement">Add SAR</button>
+            <button class="btn secondary" @click="openCustomSarModal">Add Custom SAR</button>
+            <button class="btn info" @click="editSelectedSar" :disabled="!selectedSarId">Edit Data</button>
+            <button class="btn danger" @click="removeSAR" :disabled="!selectedSarId">Remove SAR</button>
+            <button
+              class="btn warning"
+              @click="clearSessionData"
+              :disabled="sarList.length === 0"
+              title="Clear all SAR data"
+            >
+              Clear Data
+            </button>
+            <button
+              class="btn"
+              @click="openPreviewModal"
+              :disabled="sarList.length === 0"
+              title="Preview Security Assurance Requirements"
+            >
+              Preview
+            </button>
+          </div>
+          <div class="eal-selector">
+            <label for="ealLevel">Evaluation Assurance Level:</label>
+            <select id="ealLevel" v-model="selectedEal" class="eal-select">
+              <option v-for="option in ealOptions" :key="option" :value="option">{{ option }}</option>
+            </select>
+          </div>
         </div>
       </div>
       
@@ -47,32 +63,6 @@
           </tbody>
         </table>
       </div>
-    </div>
-
-    <!-- Resizable Separator -->
-    <div class="separator-container">
-      <div 
-        class="resizable-separator"
-        @mousedown="startResize"
-        title="Drag to resize"
-      >
-        <div class="separator-line"></div>
-        <div class="separator-handle">⋮⋮⋮</div>
-      </div>
-    </div>
-
-    <!-- Preview Section -->
-    <div class="sar-preview-section" ref="previewSection">
-      <div class="sar-preview-header">
-        <h3>Security Assurance Requirement Preview</h3>
-        <div class="eal-selector">
-          <label for="ealLevel">Evaluation Assurance Level:</label>
-          <select id="ealLevel" v-model="selectedEal" class="eal-select">
-            <option v-for="option in ealOptions" :key="option" :value="option">{{ option }}</option>
-          </select>
-        </div>
-      </div>
-      <div class="sar-preview-content" v-html="selectedSarPreview"></div>
     </div>
 
     <!-- Add SAR Modal -->
@@ -235,7 +225,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch, computed } from 'vue'
+import { ref, onMounted, nextTick, watch, computed, onBeforeUnmount } from 'vue'
+import { renderAsync } from 'docx-preview'
 import api from '../services/api'
 import { sessionService } from '../services/sessionService'
 
@@ -264,6 +255,7 @@ interface SarMetadata {
   classLabel?: string
   customClassInput?: string
   customComponentInput?: string
+  componentKey?: string
 }
 
 interface SarEntry {
@@ -271,12 +263,18 @@ interface SarEntry {
   className: string
   classCode: string
   componentId: string
+  componentKey: string
   componentName: string
   previewContent: string
   originalClass: string
   source: SarSource
   metadata?: SarMetadata
 }
+
+const uppercaseLeadingIdentifier = (value: string) =>
+  value.replace(/^([a-z][a-z0-9_.-]*)/i, match => match.toUpperCase())
+
+const normalizeComponentId = (value: string) => value.trim().toUpperCase()
 
 const ealOptions = ['EAL 1', 'EAL 2', 'EAL 3', 'EAL 4', 'EAL 5', 'EAL 6', 'EAL 7']
 const defaultEalLevel = ealOptions[0]
@@ -324,8 +322,12 @@ const formatAssuranceComponent = (sar: SarEntry) =>
 // Modal state
 const showAddModal = ref(false)
 const showCustomModal = ref(false)
+const showPreviewModal = ref(false)
 const editingMode = ref<SarSource | null>(null)
 const editingSarId = ref<number | null>(null)
+const previewLoading = ref(false)
+const previewError = ref('')
+const generatedDocxPath = ref<string | null>(null)
 
 // Selected SAR data
 const selectedClass = ref('')
@@ -342,6 +344,7 @@ const uniqueComponents = ref<ComponentOption[]>([])
 // Editors
 const previewEditor = ref<HTMLDivElement | null>(null)
 const customPreviewEditor = ref<HTMLDivElement | null>(null)
+const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 const showColorPicker = ref(false)
 const showCustomColorPicker = ref(false)
 
@@ -352,6 +355,7 @@ const filteredUniqueComponents = ref<ComponentOption[]>([])
 const searchInput = ref<HTMLInputElement | null>(null)
 const searchDropdownVisible = ref(false)
 const highlightedClassIndex = ref(0)
+const shouldResetSearch = ref(false)
 
 // Custom SAR inputs
 const customClassInput = ref('')
@@ -361,8 +365,6 @@ const customComponentInput = ref('')
 const sarList = ref<SarEntry[]>([])
 const selectedSarId = ref<number | null>(null)
 const selectedSarPreview = ref('')
-const previewSection = ref<HTMLDivElement | null>(null)
-const isResizing = ref(false)
 const nextSarId = ref(1)
 
 // Session management
@@ -375,6 +377,18 @@ const canFinalizeCustomSar = computed(() => {
     customPreviewContent.value.trim()
   )
 })
+
+const isDuplicateSar = (classCode: string, componentId: string, excludeId: number | null = null) => {
+  const normalizedClassCode = classCode.trim().toUpperCase()
+  const normalizedComponentId = componentId.trim().toUpperCase()
+
+  return sarList.value.some(sar => {
+    const sameClass = sar.classCode.trim().toUpperCase() === normalizedClassCode
+    const sameComponent = sar.componentId.trim().toUpperCase() === normalizedComponentId
+    const differentEntry = excludeId === null || sar.id !== excludeId
+    return sameClass && sameComponent && differentEntry
+  })
+}
 
 const cleanClassDescription = (description: string) =>
   description.replace(/\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
@@ -588,6 +602,7 @@ const resetAddModalState = () => {
   highlightedClassIndex.value = 0
   searchDropdownVisible.value = false
   showColorPicker.value = false
+  shouldResetSearch.value = false
 
   if (previewEditor.value) {
     previewEditor.value.innerHTML = ''
@@ -642,11 +657,16 @@ const closeCustomModal = () => {
 }
 
 const onSearchInput = () => {
+  shouldResetSearch.value = false
   filterSarData()
   searchDropdownVisible.value = true
 }
 
 const openSearchDropdown = () => {
+  if (shouldResetSearch.value) {
+    searchQuery.value = ''
+    shouldResetSearch.value = false
+  }
   filterSarData()
   searchDropdownVisible.value = true
 }
@@ -731,6 +751,7 @@ const selectSarClass = async (cls: SarClass, options: { preservePreview?: boolea
   const classMeta = getClassMetadata(cls)
   selectedClassLabel.value = classMeta.display
   searchQuery.value = classMeta.display
+  shouldResetSearch.value = true
   filterSarData()
   searchDropdownVisible.value = false
   highlightedClassIndex.value = 0
@@ -796,13 +817,16 @@ const onComponentChange = async () => {
 
     for (const item of componentData) {
       if (item.element && item.element_item) {
-        content += `<p><strong>${item.element}</strong> ${item.element_item}</p>`
+        const heading = uppercaseLeadingIdentifier(item.element)
+        const detail = uppercaseLeadingIdentifier(item.element_item)
+        content += `<p><strong>${heading}</strong> ${detail}</p>`
 
         try {
           const elementResponse = await api.get(`/element-lists/formatted/${item.element}`)
           if (elementResponse.data && elementResponse.data.items && elementResponse.data.items.length > 0) {
             elementResponse.data.items.forEach(subItem => {
-              content += `<p style="margin-left: 20px;">${subItem}</p>`
+              const normalized = uppercaseLeadingIdentifier(String(subItem))
+              content += `<p style="margin-left: 20px;">${normalized}</p>`
             })
           }
         } catch (elementError) {
@@ -884,27 +908,34 @@ const finalizeSAR = async () => {
     return
   }
 
+  const componentKey = selectedComponent.value
+  const normalizedComponentId = normalizeComponentId(componentKey)
+
+  if (
+    isDuplicateSar(
+      classMeta.code,
+      normalizedComponentId,
+      editingMode.value === 'database' ? editingSarId.value : null
+    )
+  ) {
+    alert('This assurance component has already been added for the selected class.')
+    return
+  }
+
   const entry: SarEntry = {
     id: editingMode.value === 'database' && editingSarId.value !== null ? editingSarId.value : nextSarId.value++,
     className: classMeta.display,
     classCode: classMeta.code,
-    componentId: selectedComponent.value,
+    componentId: normalizedComponentId,
+    componentKey,
     componentName: selectedComponentObj.component_name,
     previewContent: previewContent.value,
     originalClass: selectedClass.value,
     source: 'database',
     metadata: {
-      classLabel: classMeta.display
+      classLabel: classMeta.display,
+      componentKey
     }
-  }
-
-  const duplicateClass = sarList.value.some(
-    existing => existing.classCode === entry.classCode && existing.id !== entry.id
-  )
-
-  if (duplicateClass) {
-    alert('Only one assurance component can be selected per SAR class. Please edit the existing entry to make changes.')
-    return
   }
 
   if (editingMode.value === 'database' && editingSarId.value !== null) {
@@ -932,11 +963,26 @@ const finalizeCustomSAR = () => {
   const classMeta = parseCustomClassInput(customClassInput.value)
   const componentMeta = parseCustomComponentInput(customComponentInput.value)
 
+  const componentKey = componentMeta.id.trim()
+  const normalizedComponentId = normalizeComponentId(componentKey || componentMeta.id)
+
+  if (
+    isDuplicateSar(
+      classMeta.code,
+      normalizedComponentId,
+      editingMode.value === 'custom' ? editingSarId.value : null
+    )
+  ) {
+    alert('This assurance component has already been added for the selected class.')
+    return
+  }
+
   const entry: SarEntry = {
     id: editingMode.value === 'custom' && editingSarId.value !== null ? editingSarId.value : nextSarId.value++,
     className: classMeta.display,
     classCode: classMeta.code,
-    componentId: componentMeta.id,
+    componentId: normalizedComponentId,
+    componentKey: componentKey || normalizedComponentId,
     componentName: componentMeta.name,
     previewContent: customPreviewContent.value,
     originalClass: classMeta.raw,
@@ -944,17 +990,9 @@ const finalizeCustomSAR = () => {
     metadata: {
       classLabel: classMeta.display,
       customClassInput: classMeta.raw,
-      customComponentInput: componentMeta.display
+      customComponentInput: componentMeta.display,
+      componentKey: componentKey || normalizedComponentId
     }
-  }
-
-  const duplicateClass = sarList.value.some(
-    existing => existing.classCode === entry.classCode && existing.id !== entry.id
-  )
-
-  if (duplicateClass) {
-    alert('Only one assurance component can be selected per SAR class. Please edit the existing entry to make changes.')
-    return
   }
 
   if (editingMode.value === 'custom' && editingSarId.value !== null) {
@@ -1015,6 +1053,96 @@ const removeSAR = () => {
   }
 }
 
+const openPreviewModal = () => {
+  updatePreviewForAllSars()
+  if (!selectedSarPreview.value.trim()) {
+    return
+  }
+
+  previewError.value = ''
+  previewLoading.value = true
+  showPreviewModal.value = true
+  cleanupDocx()
+
+  api
+    .post('/security/sar/preview', {
+      user_id: userToken.value,
+      html_content: selectedSarPreview.value
+    })
+    .then(async response => {
+      const path: string | undefined = response.data?.path
+      if (!path) {
+        throw new Error('Preview generation did not return a document path.')
+      }
+      generatedDocxPath.value = path
+      await nextTick()
+      await renderDocxPreview(path)
+    })
+    .catch((error: any) => {
+      previewError.value = error?.response?.data?.detail || error?.message || 'Unable to generate preview.'
+    })
+    .finally(() => {
+      previewLoading.value = false
+    })
+}
+
+const closePreviewModal = () => {
+  showPreviewModal.value = false
+  if (!previewLoading.value) {
+    previewError.value = ''
+    cleanupDocx()
+  }
+}
+
+const renderDocxPreview = async (path: string) => {
+  if (!docxPreviewContainer.value) return
+
+  try {
+    docxPreviewContainer.value.innerHTML = ''
+    const response = await api.get(path, { responseType: 'arraybuffer' })
+    const buffer = response.data as ArrayBuffer
+    await renderAsync(buffer, docxPreviewContainer.value, undefined, {
+      className: 'docx-rendered',
+      inWrapper: true,
+      ignoreWidth: false,
+      ignoreHeight: false,
+      useBase64URL: true
+    })
+  } catch (error: any) {
+    previewError.value = error?.message || 'Failed to render DOCX preview.'
+  }
+}
+
+const cleanupDocx = (keepalive = false) => {
+  if (!userToken.value) {
+    return
+  }
+
+  if (!generatedDocxPath.value && !keepalive) {
+    return
+  }
+
+  const url = api.getUri({ url: `/security/sar/preview/${encodeURIComponent(userToken.value)}` })
+  fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
+  generatedDocxPath.value = null
+}
+
+const handleBeforeUnload = () => {
+  cleanupDocx(true)
+}
+
+const handlePageHide = () => {
+  cleanupDocx(true)
+}
+
+const removeEventListeners = () => {
+  if (typeof window === 'undefined') {
+    return
+  }
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('pagehide', handlePageHide)
+}
+
 const saveSessionData = () => {
   if (isRestoringSession) {
     return
@@ -1053,11 +1181,38 @@ const loadSessionData = () => {
       sarList.value = (sessionData.sarList || []).map((item: any) => {
         const source: SarSource = item.source === 'custom' ? 'custom' : 'database'
         const metadata: SarMetadata = item.metadata || {}
+        const classCode = deriveClassCodeForEntry({ ...item, source })
+
+        let componentKey = metadata.componentKey || item.componentKey || ''
+        if (!componentKey && metadata.customComponentInput) {
+          componentKey = parseCustomComponentInput(metadata.customComponentInput).id
+        }
+        if (!componentKey && typeof item.componentId === 'string') {
+          componentKey = item.componentId
+        }
+
+        const normalizedComponentId = componentKey
+          ? normalizeComponentId(componentKey)
+          : typeof item.componentId === 'string'
+            ? normalizeComponentId(item.componentId)
+            : ''
+
+        const mergedMetadata: SarMetadata = {
+          ...metadata,
+          componentKey: componentKey || metadata.componentKey
+        }
+
+        if (!mergedMetadata.classLabel && item.className) {
+          mergedMetadata.classLabel = item.className
+        }
+
         return {
           ...item,
           source,
-          classCode: deriveClassCodeForEntry({ ...item, source }),
-          metadata
+          classCode,
+          componentKey: componentKey || normalizedComponentId,
+          componentId: normalizedComponentId || '',
+          metadata: mergedMetadata
         } as SarEntry
       })
 
@@ -1087,6 +1242,9 @@ const clearSessionData = () => {
     }
 
     updatePreviewForAllSars()
+    showPreviewModal.value = false
+    previewError.value = ''
+    cleanupDocx()
     console.log('Session data cleared')
   }
 }
@@ -1109,6 +1267,7 @@ const editSelectedSar = async () => {
     selectedClass.value = sar.originalClass
     selectedClassLabel.value = sar.metadata?.classLabel ?? sar.className
     searchQuery.value = sar.metadata?.classLabel ?? sar.className
+    shouldResetSearch.value = true
     filterSarData()
 
     showAddModal.value = true
@@ -1121,7 +1280,10 @@ const editSelectedSar = async () => {
       await onClassChange({ preservePreview: true })
     }
 
-    selectedComponent.value = sar.componentId
+    const matchingComponent = uniqueComponents.value.find(
+      comp => normalizeComponentId(comp.component) === sar.componentId
+    )
+    selectedComponent.value = matchingComponent ? matchingComponent.component : sar.componentKey ?? sar.componentId
     filteredUniqueComponents.value = [...uniqueComponents.value]
     previewContent.value = sar.previewContent
     await nextTick()
@@ -1147,36 +1309,6 @@ const editSelectedSar = async () => {
   }
 }
 
-const startResize = (event: MouseEvent) => {
-  isResizing.value = true
-  document.addEventListener('mousemove', handleResize)
-  document.addEventListener('mouseup', stopResize)
-  event.preventDefault()
-}
-
-const handleResize = (event: MouseEvent) => {
-  if (!isResizing.value) return
-
-  const container = document.querySelector('.sar-container') as HTMLElement | null
-  if (!container) return
-
-  const rect = container.getBoundingClientRect()
-  const newHeight = event.clientY - rect.top - 100
-
-  if (newHeight > 150 && newHeight < window.innerHeight - 300) {
-    const tableSection = document.querySelector('.sar-table-section') as HTMLElement | null
-    if (tableSection) {
-      tableSection.style.height = `${newHeight}px`
-    }
-  }
-}
-
-const stopResize = () => {
-  isResizing.value = false
-  document.removeEventListener('mousemove', handleResize)
-  document.removeEventListener('mouseup', stopResize)
-}
-
 watch(selectedEal, () => {
   if (isRestoringSession) {
     return
@@ -1195,6 +1327,12 @@ watch(showAddModal, value => {
 watch(showCustomModal, value => {
   if (!value) {
     showCustomColorPicker.value = false
+  }
+})
+
+watch(previewLoading, value => {
+  if (!value && !showPreviewModal.value) {
+    cleanupDocx()
   }
 })
 
@@ -1217,6 +1355,16 @@ onMounted(async () => {
   }
 
   console.log(`Session initialized for user: ${userToken.value}`)
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('pagehide', handlePageHide)
+  }
+})
+
+onBeforeUnmount(() => {
+  cleanupDocx()
+  removeEventListeners()
 })
 </script>
 
@@ -1224,15 +1372,15 @@ onMounted(async () => {
 .sar-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 150px);
-  gap: 0;
+  gap: 24px;
+  min-height: calc(100vh - 150px);
 }
 
 .sar-table-section {
-  min-height: 300px;
-  height: 45vh;
+  flex: 1;
+  min-height: 360px;
   border: 1px solid #374151;
-  border-radius: 8px 8px 0 0;
+  border-radius: 8px;
   background: var(--panel);
   display: flex;
   flex-direction: column;
@@ -1256,7 +1404,17 @@ onMounted(async () => {
 
 .table-actions {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.table-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
 }
 
 .sar-table-container {
@@ -1318,84 +1476,15 @@ onMounted(async () => {
   padding: 40px;
 }
 
-.separator-container {
-  height: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
-  border-left: 1px solid #374151;
-  border-right: 1px solid #374151;
-  position: relative;
-}
-
-.resizable-separator {
-  width: 100%;
-  height: 10px;
-  cursor: ns-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-soft);
-  position: relative;
-}
-
-.separator-line {
-  width: 100%;
-  height: 2px;
-  background: #374151;
-}
-
-.separator-handle {
-  position: absolute;
-  color: #6B7280;
-  font-size: 10px;
-  letter-spacing: -1px;
-  background: var(--bg-soft);
-  padding: 0 8px;
-}
-
-.resizable-separator:hover {
-  background: var(--primary);
-}
-
-.resizable-separator:hover .separator-handle {
-  color: white;
-}
-
-.sar-preview-section {
-  flex: 1;
-  min-height: 300px;
-  border: 1px solid #374151;
-  border-radius: 0 0 8px 8px;
-  border-top: none;
-  background: var(--panel);
-  display: flex;
-  flex-direction: column;
-}
-
-.sar-preview-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid #374151;
-  background: var(--bg-soft);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.sar-preview-header h3 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  flex: 1;
-}
 
 .eal-selector {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--bg);
+  border: 1px solid #374151;
+  border-radius: 10px;
   color: var(--text-muted);
 }
 
@@ -1405,184 +1494,18 @@ onMounted(async () => {
 }
 
 .eal-select {
-  background: var(--bg);
+  background: var(--bg-soft);
   border: 1px solid #4B5563;
   border-radius: 6px;
   padding: 6px 10px;
   color: var(--text-bright);
+  min-width: 120px;
 }
 
 .eal-select:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
-}
-
-.sar-preview-content {
-  flex: 1;
-  padding: 20px;
-  overflow: auto;
-  background: var(--bg);
-  border-radius: 0 0 8px 8px;
-  line-height: 1.6;
-}
-
-.sar-preview-content :deep(h4) {
-  color: var(--text-bright);
-  margin-top: 0;
-  margin-bottom: 16px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.sar-preview-content :deep(h5) {
-  color: var(--text-bright);
-  margin-top: 24px;
-  margin-bottom: 12px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.sar-preview-content :deep(h6) {
-  color: var(--text-bright);
-  margin-top: 20px;
-  margin-bottom: 10px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.sar-preview-content :deep(p) {
-  margin-bottom: 12px;
-  color: var(--text);
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.sar-preview-content :deep(strong) {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-weight: 600;
-  color: var(--text-bright);
-}
-
-.sar-preview-content :deep(em) {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-style: italic;
-}
-
-.sar-preview-content :deep(.sar-preview-table-wrapper) {
-  margin-top: 16px;
-  background: #F9FAFB;
-  border: 1px solid #E5E7EB;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.sar-preview-content :deep(.sar-preview-table) {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 13px;
-  color: #1F2937;
-}
-
-.sar-preview-content :deep(.sar-preview-table thead th) {
-  background: #1F2937;
-  color: #F9FAFB;
-  padding: 12px 16px;
-  text-align: left;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.sar-preview-content :deep(.sar-preview-table tbody td) {
-  padding: 12px 16px;
-  border-top: 1px solid #E5E7EB;
-  background: transparent;
-  color: #1F2937;
-  vertical-align: top;
-}
-
-.sar-preview-content :deep(.sar-preview-table tbody tr:nth-child(even) td) {
-  background: #F3F4F6;
-}
-
-.sar-preview-content :deep(.sar-preview-table__class-cell) {
-  font-weight: 600;
-  width: 36%;
-}
-
-.sar-preview-content :deep(.sar-preview-table__component) {
-  width: 64%;
-}
-
-.sar-preview-content :deep(.sar-preview-table__empty) {
-  padding: 20px 16px;
-  text-align: center;
-  font-style: italic;
-  color: #4B5563;
-  background: #F9FAFB;
-}
-
-.sar-preview-content :deep(.sar-preview-table__note) {
-  font-style: italic;
-  color: #4B5563;
-}
-
-.sar-preview-content :deep(.sar-preview-table-caption) {
-  text-align: center;
-  font-size: 12px;
-  font-style: italic;
-  color: var(--text-muted);
-  margin-top: 8px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-}
-
-.sar-preview-content :deep(.sar-preview-class) {
-  margin-top: 24px;
-}
-
-.sar-preview-content :deep(.sar-preview-section-heading) {
-  margin: 0 0 12px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-bright);
-}
-
-.sar-preview-content :deep(.sar-preview-note),
-.sar-preview-content :deep(.sar-preview-empty) {
-  font-style: italic;
-  color: #9CA3AF;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 13px;
-}
-
-.sar-preview-content :deep(.sar-preview-note) {
-  margin-left: 16px;
-}
-
-.sar-preview-content :deep(.sar-preview-component) {
-  margin-bottom: 16px;
-}
-
-.sar-preview-content :deep(.sar-preview-component__title) {
-  margin: 12px 0 4px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-bright);
-}
-
-.sar-preview-content :deep(.sar-preview-component__body) {
-  margin-left: 16px;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 13px;
-  color: var(--text);
-  line-height: 1.6;
 }
 
 .btn.danger {
@@ -1669,6 +1592,120 @@ onMounted(async () => {
   max-width: 800px;
   max-height: 90vh;
   overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.modal-header h3 {
+  margin: 0;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.modal-card {
+  background: var(--panel);
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  width: min(920px, 90vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.45);
+}
+
+.modal-card .modal-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid #374151;
+  background: var(--bg-soft);
+  margin-bottom: 0;
+}
+
+.modal-card .modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid #374151;
+  background: var(--bg-soft);
+  margin-top: 0;
+}
+
+.docx-modal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background: var(--bg);
+}
+
+.modal-status,
+.modal-error {
+  padding: 24px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.modal-status.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.75);
+  color: #f9fafb;
+  letter-spacing: 0.02em;
+}
+
+.modal-error {
+  color: #f87171;
+}
+
+.docx-preview-shell {
+  flex: 1;
+  position: relative;
+  padding: 24px;
+  background: linear-gradient(135deg, #c7d2fe 0%, #cbd5f5 100%);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow: auto;
+}
+
+.docx-preview-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.docx-preview-container.hidden {
+  display: none;
+}
+
+.docx-preview-container .docx-wrapper {
+  margin: 0 auto;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.35);
+  border-radius: 4px;
+}
+
+.docx-preview-container .docx-wrapper .docx {
+  background: white;
+  border-radius: 2px;
 }
 
 .form-group {

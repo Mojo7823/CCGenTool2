@@ -1,9 +1,11 @@
 import os
+import os
 import re
 import shutil
 import tempfile
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,7 +19,8 @@ from sqlalchemy import text
 
 from docx import Document
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
-from docx.shared import Mm, Pt
+from docx.shared import Mm, Pt, RGBColor
+from lxml import etree, html as lxml_html
 
 from .database import Base, engine, get_db
 from .models import (
@@ -47,6 +50,12 @@ COVER_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 COVER_DOCX_ROOT = Path(os.getenv("COVER_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_cover_docx"))
 COVER_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 
+SECURITY_DOCX_ROOT = Path(
+    os.getenv("SECURITY_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_security_docx")
+)
+SECURITY_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+SECURITY_SECTIONS = {"sfr", "sar"}
+
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
@@ -65,6 +74,20 @@ def get_user_docx_dir(user_id: str, *, create: bool = False) -> Path:
         raise HTTPException(status_code=400, detail="Invalid user identifier")
 
     user_dir = COVER_DOCX_ROOT / user_id
+    if create:
+        user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir
+
+
+def get_security_docx_dir(user_id: str, section: str, *, create: bool = False) -> Path:
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+
+    if section not in SECURITY_SECTIONS:
+        raise HTTPException(status_code=400, detail="Invalid preview section")
+
+    section_dir = SECURITY_DOCX_ROOT / section
+    user_dir = section_dir / user_id
     if create:
         user_dir.mkdir(parents=True, exist_ok=True)
     return user_dir
@@ -166,6 +189,265 @@ def _build_cover_document(payload: CoverPreviewRequest) -> Path:
     document.save(str(output_path))
     return output_path
 
+
+@dataclass
+class RunFormatting:
+    bold: bool = False
+    italic: bool = False
+    underline: bool = False
+    strike: bool = False
+    color: Optional[str] = None
+
+
+class HtmlPreviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    html_content: str = Field(..., alias="html_content")
+
+
+def _parse_css_color(style: str) -> Optional[str]:
+    match = re.search(r"color\s*:\s*(#[0-9A-Fa-f]{6})", style)
+    if match:
+        return match.group(1)
+    return None
+
+
+def _extract_margin_left_points(style: str) -> Optional[float]:
+    match = re.search(r"margin-left\s*:\s*([0-9.]+)px", style)
+    if not match:
+        return None
+    try:
+        return float(match.group(1)) * 0.75
+    except ValueError:
+        return None
+
+
+def _apply_run_formatting(run, formatting: RunFormatting) -> None:
+    run.font.bold = formatting.bold
+    run.font.italic = formatting.italic
+    run.font.underline = formatting.underline
+    run.font.strike = formatting.strike
+    if formatting.color:
+        try:
+            rgb = formatting.color.lstrip("#")
+            if len(rgb) == 6:
+                run.font.color.rgb = RGBColor(int(rgb[0:2], 16), int(rgb[2:4], 16), int(rgb[4:6], 16))
+        except ValueError:
+            pass
+
+
+def _derive_child_formatting(element, base: RunFormatting) -> RunFormatting:
+    formatting = RunFormatting(**base.__dict__)
+    tag = element.tag.lower()
+
+    if tag in {"strong", "b"}:
+        formatting.bold = True
+    if tag in {"em", "i"}:
+        formatting.italic = True
+    if tag in {"u"}:
+        formatting.underline = True
+    if tag in {"s", "strike"}:
+        formatting.strike = True
+
+    style = element.attrib.get("style", "")
+    if style:
+        color = _parse_css_color(style)
+        if color:
+            formatting.color = color
+        if "underline" in style:
+            formatting.underline = True
+        if "line-through" in style:
+            formatting.strike = True
+
+    return formatting
+
+
+BLOCK_TAGS = {"p", "div", "section", "article", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "table"}
+
+
+def _append_runs_from_node(paragraph, node, formatting: RunFormatting) -> None:
+    if node.text and node.text.strip():
+        run = paragraph.add_run(node.text.replace("\xa0", " "))
+        _apply_run_formatting(run, formatting)
+
+    for child in node:
+        child_tag = child.tag.lower()
+        if child_tag in BLOCK_TAGS:
+            continue
+        if child.tag.lower() == "br":
+            paragraph.add_run().add_break()
+        else:
+            child_formatting = _derive_child_formatting(child, formatting)
+            _append_runs_from_node(paragraph, child, child_formatting)
+
+        if child.tail and child.tail.strip():
+            run = paragraph.add_run(child.tail.replace("\xa0", " "))
+            _apply_run_formatting(run, formatting)
+
+
+def _apply_paragraph_styles(paragraph, element, base_indent: float = 0.0) -> None:
+    style = element.attrib.get("style", "")
+    total_indent = base_indent
+    margin_indent = _extract_margin_left_points(style)
+    if margin_indent is not None:
+        total_indent += margin_indent
+    if total_indent:
+        paragraph.paragraph_format.left_indent = Pt(total_indent)
+    if "text-align" in style:
+        if "center" in style:
+            paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        elif "right" in style:
+            paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.RIGHT
+
+
+def _add_block_element(document: Document, element, indent: float = 0.0) -> None:
+    tag = element.tag.lower()
+
+    if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+        paragraph = document.add_paragraph()
+        base_format = RunFormatting(bold=True)
+        size_map = {
+            "h1": Pt(22),
+            "h2": Pt(20),
+            "h3": Pt(18),
+            "h4": Pt(16),
+            "h5": Pt(14),
+            "h6": Pt(12),
+        }
+        paragraph.paragraph_format.space_after = Pt(6)
+        _apply_paragraph_styles(paragraph, element, indent)
+        _append_runs_from_node(paragraph, element, base_format)
+        for run in paragraph.runs:
+            run.font.size = size_map.get(tag, Pt(12))
+    elif tag == "p":
+        paragraph = document.add_paragraph()
+        paragraph.paragraph_format.space_after = Pt(6)
+        _apply_paragraph_styles(paragraph, element, indent)
+        _append_runs_from_node(paragraph, element, RunFormatting())
+    elif tag in {"div", "section", "article"}:
+        style_indent = indent + (_extract_margin_left_points(element.attrib.get("style", "")) or 0.0)
+
+        has_block_children = any(child.tag.lower() in BLOCK_TAGS for child in element)
+
+        inline_content = (element.text and element.text.strip()) or any(
+            child.tag.lower() not in BLOCK_TAGS and (child.text or child.tail)
+            for child in element
+        )
+
+        if inline_content:
+            paragraph = document.add_paragraph()
+            paragraph.paragraph_format.space_after = Pt(6)
+            _apply_paragraph_styles(paragraph, element, style_indent)
+            _append_runs_from_node(paragraph, element, RunFormatting())
+
+        for child in element:
+            child_tag = child.tag.lower()
+            if child_tag in BLOCK_TAGS:
+                _add_block_element(document, child, indent=style_indent)
+                if child.tail and child.tail.strip():
+                    tail_paragraph = document.add_paragraph()
+                    tail_paragraph.paragraph_format.space_after = Pt(6)
+                    _apply_paragraph_styles(tail_paragraph, element, style_indent)
+                    tail_paragraph.add_run(child.tail.replace("\xa0", " "))
+    elif tag in {"ul", "ol"}:
+        list_indent = indent + (_extract_margin_left_points(element.attrib.get("style", "")) or 0.0)
+        for li in element.findall("li"):
+            paragraph = document.add_paragraph()
+            if tag == "ul":
+                paragraph.style = "List Bullet"
+            else:
+                paragraph.style = "List Number"
+            paragraph.paragraph_format.space_after = Pt(3)
+            _apply_paragraph_styles(paragraph, li, list_indent)
+            _append_runs_from_node(paragraph, li, RunFormatting())
+    elif tag == "table":
+        rows = element.findall(".//tr")
+        if not rows:
+            return
+
+        table_indent = indent + (_extract_margin_left_points(element.attrib.get("style", "")) or 0.0)
+        cols = 0
+        for row in rows:
+            row_cells = row.findall("th") or row.findall("td")
+            cols = max(cols, len(row_cells))
+        cols = max(cols, 2)
+
+        table = document.add_table(rows=len(rows), cols=cols)
+        table.autofit = True
+
+        for row_idx, row in enumerate(rows):
+            raw_cells = row.findall("th") or row.findall("td")
+            if not raw_cells:
+                continue
+
+            if len(raw_cells) == 1 and cols > 1 and row_idx != 0:
+                target_indices = [1]
+            else:
+                target_indices = list(range(len(raw_cells)))
+
+            for idx, cell in enumerate(raw_cells):
+                col_idx = target_indices[idx] if idx < len(target_indices) else idx
+                col_idx = min(col_idx, cols - 1)
+                paragraph = table.cell(row_idx, col_idx).paragraphs[0]
+                paragraph.paragraph_format.space_after = Pt(3)
+                if table_indent:
+                    paragraph.paragraph_format.left_indent = Pt(table_indent)
+                _append_runs_from_node(paragraph, cell, RunFormatting(bold=cell.tag.lower() == "th"))
+    else:
+        paragraph = document.add_paragraph()
+        paragraph.paragraph_format.space_after = Pt(6)
+        _apply_paragraph_styles(paragraph, element, indent)
+        _append_runs_from_node(paragraph, element, RunFormatting())
+
+
+def _build_security_document(html_content: str) -> Document:
+    document = Document()
+    section = document.sections[0]
+    section.page_height = Mm(297)
+    section.page_width = Mm(210)
+    section.top_margin = Mm(20)
+    section.bottom_margin = Mm(20)
+    section.left_margin = Mm(25)
+    section.right_margin = Mm(25)
+
+    if not html_content or not html_content.strip():
+        document.add_paragraph("No content available for preview.")
+        return document
+
+    try:
+        fragment = lxml_html.fragment_fromstring(html_content, create_parent=True)
+    except (etree.ParserError, ValueError):
+        document.add_paragraph("Unable to render preview content.")
+        return document
+
+    for element in fragment:
+        _add_block_element(document, element, indent=0.0)
+
+    return document
+
+
+def _generate_security_preview(user_id: str, section: str, html_content: str) -> Path:
+    user_dir = get_security_docx_dir(user_id, section, create=True)
+    for existing in user_dir.glob("*.docx"):
+        existing.unlink(missing_ok=True)
+
+    document = _build_security_document(html_content)
+    filename = f"{uuid.uuid4().hex}.docx"
+    output_path = user_dir / filename
+    document.save(str(output_path))
+    return output_path
+
+
+def _cleanup_security_previews(user_id: str, section: str) -> None:
+    try:
+        user_dir = get_security_docx_dir(user_id, section, create=False)
+    except HTTPException:
+        return
+
+    if user_dir.exists():
+        shutil.rmtree(user_dir)
+
 # CORS configuration: prefer regex if provided to allow any LAN IP on port 5173
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 origin_regex = os.getenv(
@@ -194,6 +476,7 @@ else:
 
 app.mount("/cover/uploads", StaticFiles(directory=str(COVER_UPLOAD_ROOT)), name="cover-uploads")
 app.mount("/cover/docx", StaticFiles(directory=str(COVER_DOCX_ROOT)), name="cover-docx")
+app.mount("/security/docx", StaticFiles(directory=str(SECURITY_DOCX_ROOT)), name="security-docx")
 
 
 @app.get("/health")
@@ -660,4 +943,34 @@ async def cleanup_cover_preview(user_id: str):
     docx_dir = get_user_docx_dir(user_id, create=False)
     if docx_dir.exists():
         shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.post("/security/sfr/preview")
+async def generate_sfr_preview(payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _generate_security_preview(payload.user_id, "sfr", payload.html_content)
+    return {"path": f"/security/docx/sfr/{payload.user_id}/{output_path.name}"}
+
+
+@app.delete("/security/sfr/preview/{user_id}")
+async def cleanup_sfr_preview(user_id: str):
+    _cleanup_security_previews(user_id, "sfr")
+    return {"status": "deleted"}
+
+
+@app.post("/security/sar/preview")
+async def generate_sar_preview(payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _generate_security_preview(payload.user_id, "sar", payload.html_content)
+    return {"path": f"/security/docx/sar/{payload.user_id}/{output_path.name}"}
+
+
+@app.delete("/security/sar/preview/{user_id}")
+async def cleanup_sar_preview(user_id: str):
+    _cleanup_security_previews(user_id, "sar")
     return {"status": "deleted"}
