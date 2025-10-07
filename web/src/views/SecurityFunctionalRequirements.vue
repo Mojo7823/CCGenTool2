@@ -12,6 +12,7 @@
           <button class="btn secondary" @click="openCustomSfrModal">Add Custom SFR</button>
           <button class="btn info" @click="editSelectedSfr" :disabled="!selectedSfrId">Edit Data</button>
           <button class="btn danger" @click="removeSFR" :disabled="!selectedSfrId">Remove SFR</button>
+          <button class="btn success" @click="openPreviewModal" :disabled="sfrList.length === 0">Preview</button>
           <button
             class="btn warning"
             @click="clearSessionData"
@@ -49,24 +50,20 @@
       </div>
     </div>
 
-    <!-- Resizable Separator -->
-    <div class="separator-container">
-      <div 
-        class="resizable-separator"
-        @mousedown="startResize"
-        title="Drag to resize"
-      >
-        <div class="separator-line"></div>
-        <div class="separator-handle">⋮⋮⋮</div>
+    <!-- Preview Modal -->
+    <div v-if="showPreviewModal" class="modal-overlay" @click.self="closePreviewModal">
+      <div class="modal-card preview-modal-card">
+        <header class="modal-header">
+          <h2>Security Functional Requirement Preview</h2>
+          <button class="modal-close" type="button" @click="closePreviewModal">&times;</button>
+        </header>
+        <section class="modal-body preview-modal-body">
+          <div class="sfr-preview-content" v-html="selectedSfrPreview"></div>
+        </section>
+        <footer class="modal-footer">
+          <button class="btn" type="button" @click="closePreviewModal">Close</button>
+        </footer>
       </div>
-    </div>
-
-    <!-- Preview Section -->
-    <div class="sfr-preview-section" ref="previewSection">
-      <div class="sfr-preview-header">
-        <h3>Security Functional Requirement Preview</h3>
-      </div>
-      <div class="sfr-preview-content" v-html="selectedSfrPreview"></div>
     </div>
 
     <!-- Add SFR Modal -->
@@ -275,6 +272,7 @@ interface SfrEntry {
 // Modal state
 const showAddModal = ref(false)
 const showCustomModal = ref(false)
+const showPreviewModal = ref(false)
 const editingMode = ref<SfrSource | null>(null)
 const editingSfrId = ref<number | null>(null)
 
@@ -312,8 +310,6 @@ const customComponentInput = ref('')
 const sfrList = ref<SfrEntry[]>([])
 const selectedSfrId = ref<number | null>(null)
 const selectedSfrPreview = ref('')
-const previewSection = ref<HTMLDivElement | null>(null)
-const isResizing = ref(false)
 const nextSfrId = ref(1)
 
 // Session management
@@ -396,6 +392,17 @@ const parseCustomComponentInput = (input: string) => {
   }
 }
 
+// Function to capitalize SFR identifiers in the preview content
+const capitalizeSfrIdentifiers = (content: string): string => {
+  // Match patterns like fau_gen.1.1, fau_gen.1.2, etc. at the start of a line or after tags
+  return content.replace(/(<[^>]*>)?(\b[a-z]{3}_[a-z_]+\.\d+(?:\.\d+)?)/gi, (match, tag, identifier) => {
+    if (tag) {
+      return tag + identifier.toUpperCase()
+    }
+    return identifier.toUpperCase()
+  })
+}
+
 // Predefined template for SFR preview
 const getSfrTemplate = () => {
   return `
@@ -475,12 +482,24 @@ const closeCustomModal = () => {
   editingSfrId.value = null
 }
 
+const openPreviewModal = () => {
+  showPreviewModal.value = true
+}
+
+const closePreviewModal = () => {
+  showPreviewModal.value = false
+}
+
 const onSearchInput = () => {
   filterSfrData()
   searchDropdownVisible.value = true
 }
 
 const openSearchDropdown = () => {
+  // Clear search input when clicking if there's already a selection
+  if (selectedClassLabel.value) {
+    searchQuery.value = ''
+  }
   filterSfrData()
   searchDropdownVisible.value = true
 }
@@ -718,6 +737,18 @@ const finalizeSFR = async () => {
     return
   }
 
+  // Check for duplicate SFR (skip check if editing existing SFR)
+  if (editingMode.value !== 'database' || editingSfrId.value === null) {
+    const isDuplicate = sfrList.value.some(sfr => 
+      sfr.componentId.toLowerCase() === selectedComponent.value.toLowerCase()
+    )
+    
+    if (isDuplicate) {
+      alert(`The SFR "${selectedComponent.value}" has already been added. You cannot add duplicate SFRs.`)
+      return
+    }
+  }
+
   const entry: SfrEntry = {
     id: editingMode.value === 'database' && editingSfrId.value !== null ? editingSfrId.value : nextSfrId.value++,
     className: classMeta.display,
@@ -756,6 +787,18 @@ const finalizeCustomSFR = () => {
 
   const classMeta = parseCustomClassInput(customClassInput.value)
   const componentMeta = parseCustomComponentInput(customComponentInput.value)
+
+  // Check for duplicate SFR (skip check if editing existing SFR)
+  if (editingMode.value !== 'custom' || editingSfrId.value === null) {
+    const isDuplicate = sfrList.value.some(sfr => 
+      sfr.componentId.toLowerCase() === componentMeta.id.toLowerCase()
+    )
+    
+    if (isDuplicate) {
+      alert(`The SFR "${componentMeta.id}" has already been added. You cannot add duplicate SFRs.`)
+      return
+    }
+  }
 
   const entry: SfrEntry = {
     id: editingMode.value === 'custom' && editingSfrId.value !== null ? editingSfrId.value : nextSfrId.value++,
@@ -821,8 +864,13 @@ const updatePreviewForAllSfrs = () => {
   Object.keys(sfrsByClass).forEach(classCode => {
     const classData = sfrsByClass[classCode]
 
+    // Extract just the description part without the prefix to avoid duplication
+    const classNameWithoutPrefix = classData.className.includes(':') 
+      ? classData.className.split(':').slice(1).join(':').trim()
+      : classData.className
+
     allSfrSections += `
-<h5>5.1.${classIndex} ${classCode}: ${classData.className}</h5>
+<h5>5.1.${classIndex} ${classCode}: ${classNameWithoutPrefix}</h5>
 `
 
     let componentIndex = 1
@@ -830,10 +878,12 @@ const updatePreviewForAllSfrs = () => {
       const componentTitle = sfr.componentName
         ? `${sfr.componentId} : ${sfr.componentName}`
         : sfr.componentId
+      // Capitalize SFR identifiers in the preview content
+      const capitalizedContent = capitalizeSfrIdentifiers(sfr.previewContent)
       allSfrSections += `
 <h6>5.1.${classIndex}.${componentIndex} ${componentTitle}</h6>
 <div style="margin-left: 20px;">
-${sfr.previewContent}
+${capitalizedContent}
 </div>
 `
       componentIndex++
@@ -972,36 +1022,6 @@ const editSelectedSfr = async () => {
   }
 }
 
-const startResize = (event: MouseEvent) => {
-  isResizing.value = true
-  document.addEventListener('mousemove', handleResize)
-  document.addEventListener('mouseup', stopResize)
-  event.preventDefault()
-}
-
-const handleResize = (event: MouseEvent) => {
-  if (!isResizing.value) return
-
-  const container = document.querySelector('.sfr-container') as HTMLElement | null
-  if (!container) return
-
-  const rect = container.getBoundingClientRect()
-  const newHeight = event.clientY - rect.top - 100
-
-  if (newHeight > 150 && newHeight < window.innerHeight - 300) {
-    const tableSection = document.querySelector('.sfr-table-section') as HTMLElement | null
-    if (tableSection) {
-      tableSection.style.height = `${newHeight}px`
-    }
-  }
-}
-
-const stopResize = () => {
-  isResizing.value = false
-  document.removeEventListener('mousemove', handleResize)
-  document.removeEventListener('mouseup', stopResize)
-}
-
 watch(showAddModal, value => {
   if (!value) {
     showColorPicker.value = false
@@ -1041,15 +1061,14 @@ onMounted(async () => {
 .sfr-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 150px);
   gap: 0;
 }
 
 .sfr-table-section {
-  min-height: 300px;
-  height: 45vh;
+  min-height: 400px;
+  height: calc(100vh - 200px);
   border: 1px solid #374151;
-  border-radius: 8px 8px 0 0;
+  border-radius: 8px;
   background: var(--panel);
   display: flex;
   flex-direction: column;
@@ -1135,80 +1154,19 @@ onMounted(async () => {
   padding: 40px;
 }
 
-.separator-container {
-  height: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
-  border-left: 1px solid #374151;
-  border-right: 1px solid #374151;
-  position: relative;
+/* Preview Modal Styles */
+.preview-modal-card {
+  max-width: 900px;
+  max-height: 90vh;
 }
 
-.resizable-separator {
-  width: 100%;
-  height: 10px;
-  cursor: ns-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-soft);
-  position: relative;
-}
-
-.separator-line {
-  width: 100%;
-  height: 2px;
-  background: #374151;
-}
-
-.separator-handle {
-  position: absolute;
-  color: #6B7280;
-  font-size: 10px;
-  letter-spacing: -1px;
-  background: var(--bg-soft);
-  padding: 0 8px;
-}
-
-.resizable-separator:hover {
-  background: var(--primary);
-}
-
-.resizable-separator:hover .separator-handle {
-  color: white;
-}
-
-.sfr-preview-section {
-  flex: 1;
-  min-height: 300px;
-  border: 1px solid #374151;
-  border-radius: 0 0 8px 8px;
-  border-top: none;
-  background: var(--panel);
-  display: flex;
-  flex-direction: column;
-}
-
-.sfr-preview-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid #374151;
-  background: var(--bg-soft);
-}
-
-.sfr-preview-header h3 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+.preview-modal-body {
+  max-height: calc(90vh - 150px);
+  overflow: auto;
 }
 
 .sfr-preview-content {
-  flex: 1;
   padding: 20px;
-  overflow: auto;
-  background: var(--bg);
-  border-radius: 0 0 8px 8px;
   line-height: 1.6;
 }
 

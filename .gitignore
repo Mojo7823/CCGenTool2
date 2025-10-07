@@ -47,3 +47,6 @@ Thumbs.db
 # Database
 *.db
 *.sqlite
+# Build artifacts
+web/dist/
+web/node_modules/
