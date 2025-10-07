@@ -5,6 +5,14 @@
         <h1>Cover Image</h1>
         <span class="menubar-subtitle">Insert Cover Image Here</span>
       </div>
+      <div
+        class="cover-status"
+        :class="[`state-${saveStatus.state}`, { empty: !saveStatus.text }]"
+        role="status"
+        aria-live="polite"
+      >
+        {{ saveStatus.text || ' ' }}
+      </div>
       <button
         class="btn primary"
         type="button"
@@ -108,9 +116,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
+import { getOrCreateUserId } from '../services/userSession'
+import { loadSection, saveSection } from '../services/stIntroductionSessionService'
+import { fetchCoverSection, saveCoverSection } from '../services/stIntroductionApi'
+import type { CoverFormData, SectionResponse } from '../types/st-introduction'
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragActive = ref(false)
@@ -133,8 +145,12 @@ const form = reactive({
   date: ''
 })
 
-const storageKey = 'ccgen-user-id'
 const userId = ref('')
+const isReady = ref(false)
+const saving = ref(false)
+const saveError = ref('')
+const lastSavedAt = ref<number | null>(null)
+const pendingSave = ref(false)
 
 const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !!form.description)
 const imageUrl = computed(() => {
@@ -142,19 +158,170 @@ const imageUrl = computed(() => {
   return api.getUri({ url: uploadedImagePath.value })
 })
 
-function ensureUserId() {
-  if (typeof window === 'undefined') return
-  const existing = window.localStorage.getItem(storageKey)
-  if (existing) {
-    userId.value = existing
+const saveStatus = computed(() => {
+  if (saving.value) {
+    return { text: 'Saving…', state: 'saving' as const }
+  }
+  if (saveError.value) {
+    return { text: saveError.value, state: 'error' as const }
+  }
+  if (lastSavedAt.value) {
+    const time = new Date(lastSavedAt.value)
+    return { text: `Saved ${time.toLocaleTimeString()}`, state: 'saved' as const }
+  }
+  return { text: '', state: 'idle' as const }
+})
+
+const COVER_SECTION_KEY = 'cover'
+
+function createDefaultCoverData(): CoverFormData {
+  return {
+    title: '',
+    version: '',
+    revision: '',
+    description: '',
+    manufacturer: '',
+    date: '',
+    image_path: '',
+  }
+}
+
+function buildCoverPayload(): CoverFormData {
+  return {
+    title: form.title,
+    version: form.version,
+    revision: form.revision,
+    description: form.description,
+    manufacturer: form.manufacturer,
+    date: form.date,
+    image_path: uploadedImagePath.value || '',
+  }
+}
+
+function applyCoverData(data: Partial<CoverFormData>) {
+  if (typeof data.title === 'string') form.title = data.title
+  if (typeof data.version === 'string') form.version = data.version
+  if (typeof data.revision === 'string') form.revision = data.revision
+  if (typeof data.description === 'string') form.description = data.description
+  if (typeof data.manufacturer === 'string') form.manufacturer = data.manufacturer
+  if (typeof data.date === 'string') form.date = data.date
+  if ('image_path' in data && typeof data.image_path === 'string') {
+    uploadedImagePath.value = data.image_path || null
+    hasUploaded.value = !!uploadedImagePath.value
+  }
+}
+
+function persistCoverLocally() {
+  if (!userId.value) return
+  const payload = buildCoverPayload()
+  saveSection(COVER_SECTION_KEY, userId.value, payload)
+}
+
+let autosaveHandle: number | undefined
+
+function cancelAutosave() {
+  if (autosaveHandle !== undefined) {
+    window.clearTimeout(autosaveHandle)
+    autosaveHandle = undefined
+  }
+}
+
+function scheduleServerSave(immediate = false) {
+  if (!isReady.value || !userId.value) return
+
+  if (autosaveHandle !== undefined) {
+    window.clearTimeout(autosaveHandle)
+    autosaveHandle = undefined
+  }
+
+  if (immediate) {
+    void triggerServerSave()
     return
   }
-  const generated = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2)
-  userId.value = generated
-  window.localStorage.setItem(storageKey, generated)
+
+  autosaveHandle = window.setTimeout(() => {
+    autosaveHandle = undefined
+    void triggerServerSave()
+  }, 600)
 }
+
+async function triggerServerSave() {
+  if (!userId.value || !isReady.value) return
+  if (saving.value) {
+    pendingSave.value = true
+    return
+  }
+
+  saving.value = true
+  saveError.value = ''
+  const payload = buildCoverPayload()
+
+  try {
+    const response = await saveCoverSection(userId.value, payload)
+    const updatedAt = response.data.updated_at
+    if (updatedAt) {
+      const parsed = Date.parse(updatedAt)
+      if (!Number.isNaN(parsed)) {
+        lastSavedAt.value = parsed
+      }
+    } else {
+      lastSavedAt.value = Date.now()
+    }
+  } catch (error: any) {
+    saveError.value = error?.response?.data?.detail || error?.message || 'Failed to save cover information.'
+  } finally {
+    saving.value = false
+    if (pendingSave.value) {
+      pendingSave.value = false
+      scheduleServerSave(true)
+    }
+  }
+}
+
+async function initialiseCoverSection() {
+  const id = getOrCreateUserId()
+  if (!id) return
+  userId.value = id
+
+  const localData = loadSection(COVER_SECTION_KEY, id, createDefaultCoverData())
+  applyCoverData(localData)
+
+  try {
+    const response: SectionResponse<CoverFormData> = (await fetchCoverSection(id)).data
+    if (response?.data) {
+      applyCoverData(response.data)
+    }
+    if (response?.updated_at) {
+      const parsed = Date.parse(response.updated_at)
+      if (!Number.isNaN(parsed)) {
+        lastSavedAt.value = parsed
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load cover section from server', error)
+  }
+
+  hasUploaded.value = !!uploadedImagePath.value
+  isReady.value = true
+  persistCoverLocally()
+}
+
+watch(
+  form,
+  () => {
+    if (!isReady.value) return
+    persistCoverLocally()
+    scheduleServerSave()
+  },
+  { deep: true }
+)
+
+watch(uploadedImagePath, () => {
+  if (!isReady.value) return
+  hasUploaded.value = !!uploadedImagePath.value
+  persistCoverLocally()
+  scheduleServerSave(true)
+})
 
 function triggerFileDialog() {
   fileInput.value?.click()
@@ -209,10 +376,6 @@ function handleDrop(event: DragEvent) {
 
 async function openPreview() {
   if (!hasPreview.value || previewLoading.value) return
-
-  if (!userId.value) {
-    ensureUserId()
-  }
 
   if (!userId.value) {
     previewError.value = 'Unable to determine user session identifier.'
@@ -296,6 +459,8 @@ function removeEventListeners() {
 function cleanupUploads(keepalive = false) {
   if (!userId.value) return
 
+  cancelAutosave()
+
   if (hasUploaded.value) {
     const url = api.getUri({ url: `/cover/upload/${userId.value}` })
     fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
@@ -322,7 +487,7 @@ function handlePageHide() {
 }
 
 onMounted(() => {
-  ensureUserId()
+  void initialiseCoverSection()
   if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', handleBeforeUnload)
     window.addEventListener('pagehide', handlePageHide)
@@ -330,7 +495,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  cleanupUploads()
+  cancelAutosave()
   removeEventListeners()
 })
 </script>
@@ -347,6 +512,30 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+}
+
+.cover-status {
+  min-width: 160px;
+  text-align: right;
+  font-size: 0.875rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cover-status.empty {
+  color: transparent;
+}
+
+.cover-status.state-saving {
+  color: var(--muted);
+}
+
+.cover-status.state-error {
+  color: var(--danger);
+}
+
+.cover-status.state-saved {
+  color: #34d399;
 }
 
 .cover-menubar-left h1 {

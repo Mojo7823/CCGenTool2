@@ -1,10 +1,12 @@
 import os
+import json
 import re
 import shutil
 import tempfile
 import time
 import uuid
 from datetime import datetime
+from html import escape
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
@@ -51,6 +53,10 @@ SFR_DOCX_ROOT = Path(os.getenv("SFR_DOCX_DIR", Path(tempfile.gettempdir()) / "cc
 SFR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 SAR_DOCX_ROOT = Path(os.getenv("SAR_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_sar_docx"))
 SAR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+ST_INTRO_ROOT = Path(os.getenv("ST_INTRO_DIR", Path(tempfile.gettempdir()) / "ccgentool2_st_intro"))
+ST_INTRO_ROOT.mkdir(parents=True, exist_ok=True)
+ST_INTRO_DOCX_ROOT = Path(os.getenv("ST_INTRO_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_st_intro_docx"))
+ST_INTRO_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -79,6 +85,21 @@ def get_user_docx_dir(user_id: str, *, create: bool = False) -> Path:
     return _get_preview_docx_dir(COVER_DOCX_ROOT, user_id, create=create)
 
 
+def _get_st_intro_user_dir(user_id: str, *, create: bool = False) -> Path:
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+
+    user_dir = ST_INTRO_ROOT / user_id
+    if create:
+        user_dir.mkdir(parents=True, exist_ok=True)
+    return user_dir
+
+
+def _get_st_intro_section_path(user_id: str, section: str, *, create: bool = False) -> Path:
+    user_dir = _get_st_intro_user_dir(user_id, create=create)
+    return user_dir / f"{section}.json"
+
+
 class CoverPreviewRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -97,6 +118,51 @@ class HtmlPreviewRequest(BaseModel):
 
     user_id: str = Field(..., alias="user_id")
     html_content: str = Field(..., alias="html_content")
+
+
+class StReferencePayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    st_title: Optional[str] = Field('', alias="st_title")
+    st_version: Optional[str] = Field('', alias="st_version")
+    st_date: Optional[str] = Field('', alias="st_date")
+    author: Optional[str] = Field('', alias="author")
+
+
+class ToeReferencePayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    toe_name: Optional[str] = Field('', alias="toe_name")
+    toe_version: Optional[str] = Field('', alias="toe_version")
+    toe_identification: Optional[str] = Field('', alias="toe_identification")
+    toe_type: Optional[str] = Field('', alias="toe_type")
+
+
+class ToeOverviewPayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    overview: Optional[str] = Field('', alias="overview")
+    toe_type: Optional[str] = Field('', alias="toe_type")
+    toe_usage: Optional[str] = Field('', alias="toe_usage")
+    toe_security_features: Optional[str] = Field('', alias="toe_security_features")
+    non_toe: Optional[str] = Field('', alias="non_toe")
+
+
+class ToeDescriptionPayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    physical_scope: Optional[str] = Field('', alias="physical_scope")
+    logical_scope: Optional[str] = Field('', alias="logical_scope")
+
+
+class StIntroductionPreviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
 
 
 def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Optional[Path]:
@@ -181,6 +247,262 @@ def _build_cover_document(payload: CoverPreviewRequest) -> Path:
     output_path = docx_dir / filename
     document.save(str(output_path))
     return output_path
+
+
+def _clean_plain_text(value: Optional[str]) -> str:
+    if not value:
+        return "&mdash;"
+    cleaned = value.strip()
+    return escape(cleaned) if cleaned else "&mdash;"
+
+
+def _format_multiline_plain_text(value: Optional[str]) -> str:
+    if not value:
+        return "&mdash;"
+    lines = [escape(line) for line in value.splitlines()]
+    formatted = "<br />".join(line if line else "&nbsp;" for line in lines)
+    return formatted or "&mdash;"
+
+
+def _normalize_wysiwyg_html(value: Optional[str]) -> str:
+    if not value:
+        return "<p>&mdash;</p>"
+    cleaned = value.strip()
+    if not cleaned:
+        return "<p>&mdash;</p>"
+    if "<" not in cleaned and ">" not in cleaned:
+        return f"<p>{escape(cleaned)}</p>"
+    return cleaned
+
+
+def _format_optional_paragraph(value: Optional[str]) -> str:
+    if not value:
+        return ""
+    cleaned = value.strip()
+    if not cleaned:
+        return ""
+    return f"<p>{escape(cleaned)}</p>"
+
+
+def _string_or_empty(value: Optional[str]) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _save_st_intro_section(user_id: str, section: str, data: dict, html_content: str) -> dict:
+    stored = {
+        "data": data,
+        "html": html_content,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    path = _get_st_intro_section_path(user_id, section, create=True)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(stored, handle, ensure_ascii=False, indent=2)
+    return stored
+
+
+def _load_st_intro_section(user_id: str, section: str) -> Optional[dict]:
+    path = _get_st_intro_section_path(user_id, section, create=False)
+    if not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            content = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(content, dict):
+        return None
+    return content
+
+
+def _prepare_section_response(stored: Optional[dict], defaults: dict) -> dict:
+    base = {
+        "data": defaults.copy(),
+        "html": "",
+        "updated_at": None,
+    }
+    if not stored:
+        return base
+
+    data = stored.get("data")
+    if isinstance(data, dict):
+        for key in defaults:
+            if key in data:
+                base["data"][key] = data[key]
+
+    if isinstance(stored.get("html"), str):
+        base["html"] = stored["html"]
+    if isinstance(stored.get("updated_at"), str):
+        base["updated_at"] = stored["updated_at"]
+    return base
+
+
+def _build_cover_html(payload: CoverPreviewRequest) -> str:
+    title = _clean_plain_text(payload.title)
+    version = _clean_plain_text(payload.version)
+    revision = _clean_plain_text(payload.revision)
+    manufacturer = _clean_plain_text(payload.manufacturer)
+    formatted_date = _clean_plain_text(_format_cover_date(payload.date))
+    description = _format_optional_paragraph(payload.description)
+    image_note = (
+        f"<p><em>Cover image uploaded to: {escape(payload.image_path)}</em></p>"
+        if payload.image_path
+        else ""
+    )
+
+    rows = "".join(
+        [
+            f"<tr><th>Security Target Title</th><td>{title}</td></tr>",
+            f"<tr><th>Security Target Version</th><td>{version}</td></tr>",
+            f"<tr><th>Revision</th><td>{revision}</td></tr>",
+            f"<tr><th>Manufacturer/Laboratory</th><td>{manufacturer}</td></tr>",
+            f"<tr><th>Date</th><td>{formatted_date}</td></tr>",
+        ]
+    )
+
+    parts = [
+        "<section>",
+        "<h1>Security Target Cover</h1>",
+        description,
+        "<table>",
+        rows,
+        "</table>",
+        image_note,
+        "</section>",
+    ]
+    return "\n".join(part for part in parts if part)
+
+
+def _build_st_reference_html(payload: StReferencePayload) -> str:
+    st_title = _clean_plain_text(payload.st_title)
+    st_version = _clean_plain_text(payload.st_version)
+    st_date = _clean_plain_text(_format_cover_date(payload.st_date))
+    author = _format_multiline_plain_text(payload.author)
+
+    table_rows = "".join(
+        [
+            f"<tr><th>ST Title</th><td>{st_title}</td></tr>",
+            f"<tr><th>ST Version</th><td>{st_version}</td></tr>",
+            f"<tr><th>ST Date</th><td>{st_date}</td></tr>",
+            f"<tr><th>Author</th><td>{author}</td></tr>",
+        ]
+    )
+
+    parts = [
+        "<h2>1. Security Target Introduction</h2>",
+        (
+            "<p>This section presents the following information required for a Common Criteria (CC) evaluation:</p>"
+        ),
+        "<ul>",
+        "<li>Identifies the Security Target (ST) and the Target of Evaluation (TOE)</li>",
+        "<li>Specifies the security target conventions</li>",
+        "<li>Describes the organization of the security target</li>",
+        "</ul>",
+        "<h3>1.1 ST Reference</h3>",
+        "<table>",
+        table_rows,
+        "</table>",
+        "<p><em>Table 1 Security Target reference</em></p>",
+    ]
+    return "\n".join(parts)
+
+
+def _build_toe_reference_html(payload: ToeReferencePayload) -> str:
+    toe_name = _normalize_wysiwyg_html(payload.toe_name)
+    toe_version = _normalize_wysiwyg_html(payload.toe_version)
+    toe_identification = _normalize_wysiwyg_html(payload.toe_identification)
+    toe_type = _normalize_wysiwyg_html(payload.toe_type)
+
+    rows = "".join(
+        [
+            f"<tr><th>TOE Name</th><td>{toe_name}</td></tr>",
+            f"<tr><th>TOE Version</th><td>{toe_version}</td></tr>",
+            f"<tr><th>TOE Identification</th><td>{toe_identification}</td></tr>",
+            f"<tr><th>TOE Type</th><td>{toe_type}</td></tr>",
+        ]
+    )
+
+    parts = [
+        "<h3>1.2 TOE Reference</h3>",
+        "<table>",
+        rows,
+        "</table>",
+        "<p><em>Table 2 TOE reference</em></p>",
+    ]
+    return "\n".join(parts)
+
+
+def _build_toe_overview_html(payload: ToeOverviewPayload) -> str:
+    overview = _normalize_wysiwyg_html(payload.overview)
+    toe_type = _normalize_wysiwyg_html(payload.toe_type)
+    toe_usage = _normalize_wysiwyg_html(payload.toe_usage)
+    toe_security = _normalize_wysiwyg_html(payload.toe_security_features)
+    non_toe = _normalize_wysiwyg_html(payload.non_toe)
+
+    parts = [
+        "<h3>1.3 TOE Overview</h3>",
+        overview,
+        "<h4>1.3.1 TOE Type</h4>",
+        toe_type,
+        "<h4>1.3.2 TOE Usage</h4>",
+        toe_usage,
+        "<h4>1.3.3 TOE Major Security Features</h4>",
+        toe_security,
+        "<h4>1.3.4 Non-TOE Hardware/Software/Firmware</h4>",
+        non_toe,
+    ]
+    return "\n".join(parts)
+
+
+def _build_toe_description_html(payload: ToeDescriptionPayload) -> str:
+    physical = _normalize_wysiwyg_html(payload.physical_scope)
+    logical = _normalize_wysiwyg_html(payload.logical_scope)
+
+    parts = [
+        "<h3>1.4 TOE Description</h3>",
+        "<h4>1.4.1 TOE Physical Scope</h4>",
+        physical,
+        "<h4>1.4.2 TOE Logical Scope</h4>",
+        logical,
+    ]
+    return "\n".join(parts)
+
+
+COVER_SECTION_DEFAULTS = {
+    "title": "",
+    "version": "",
+    "revision": "",
+    "description": "",
+    "manufacturer": "",
+    "date": "",
+    "image_path": "",
+}
+
+ST_REFERENCE_DEFAULTS = {
+    "st_title": "",
+    "st_version": "",
+    "st_date": "",
+    "author": "",
+}
+
+TOE_REFERENCE_DEFAULTS = {
+    "toe_name": "",
+    "toe_version": "",
+    "toe_identification": "",
+    "toe_type": "",
+}
+
+TOE_OVERVIEW_DEFAULTS = {
+    "overview": "",
+    "toe_type": "",
+    "toe_usage": "",
+    "toe_security_features": "",
+    "non_toe": "",
+}
+
+TOE_DESCRIPTION_DEFAULTS = {
+    "physical_scope": "",
+    "logical_scope": "",
+}
 
 
 def _px_to_points(px_value: float) -> float:
@@ -513,6 +835,7 @@ app.mount("/cover/uploads", StaticFiles(directory=str(COVER_UPLOAD_ROOT)), name=
 app.mount("/cover/docx", StaticFiles(directory=str(COVER_DOCX_ROOT)), name="cover-docx")
 app.mount("/security/sfr/docx", StaticFiles(directory=str(SFR_DOCX_ROOT)), name="sfr-docx")
 app.mount("/security/sar/docx", StaticFiles(directory=str(SAR_DOCX_ROOT)), name="sar-docx")
+app.mount("/st-introduction/docx", StaticFiles(directory=str(ST_INTRO_DOCX_ROOT)), name="st-intro-docx")
 
 
 @app.get("/health")
@@ -905,6 +1228,161 @@ def delete_family_component(table_name: str, item_id: int, db: Session = Depends
     db.delete(item)
     db.commit()
     return None
+
+
+@app.get("/st-introduction/cover/{user_id}")
+def get_cover_section(user_id: str):
+    stored = _load_st_intro_section(user_id, "cover")
+    return _prepare_section_response(stored, COVER_SECTION_DEFAULTS)
+
+
+@app.post("/st-introduction/cover")
+def save_cover_section(payload: CoverPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    image_path_value = ""
+    if payload.image_path:
+        resolved = _resolve_uploaded_image_path(payload.image_path, payload.user_id)
+        image_path_value = f"/cover/uploads/{payload.user_id}/{resolved.name}"
+
+    normalized_payload = payload.model_copy(update={"image_path": image_path_value})
+    data = {
+        "title": _string_or_empty(payload.title),
+        "version": _string_or_empty(payload.version),
+        "revision": _string_or_empty(payload.revision),
+        "description": _string_or_empty(payload.description),
+        "manufacturer": _string_or_empty(payload.manufacturer),
+        "date": _string_or_empty(payload.date),
+        "image_path": image_path_value,
+    }
+
+    html_content = _build_cover_html(normalized_payload)
+    stored = _save_st_intro_section(payload.user_id, "cover", data, html_content)
+    return stored
+
+
+@app.get("/st-introduction/reference/{user_id}")
+def get_st_reference_section(user_id: str):
+    stored = _load_st_intro_section(user_id, "st_reference")
+    return _prepare_section_response(stored, ST_REFERENCE_DEFAULTS)
+
+
+@app.post("/st-introduction/reference")
+def save_st_reference_section(payload: StReferencePayload):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    data = {
+        "st_title": _string_or_empty(payload.st_title),
+        "st_version": _string_or_empty(payload.st_version),
+        "st_date": _string_or_empty(payload.st_date),
+        "author": _string_or_empty(payload.author),
+    }
+
+    html_content = _build_st_reference_html(payload)
+    stored = _save_st_intro_section(payload.user_id, "st_reference", data, html_content)
+    return stored
+
+
+@app.get("/st-introduction/toe-reference/{user_id}")
+def get_toe_reference_section(user_id: str):
+    stored = _load_st_intro_section(user_id, "toe_reference")
+    return _prepare_section_response(stored, TOE_REFERENCE_DEFAULTS)
+
+
+@app.post("/st-introduction/toe-reference")
+def save_toe_reference_section(payload: ToeReferencePayload):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    data = {
+        "toe_name": _string_or_empty(payload.toe_name),
+        "toe_version": _string_or_empty(payload.toe_version),
+        "toe_identification": _string_or_empty(payload.toe_identification),
+        "toe_type": _string_or_empty(payload.toe_type),
+    }
+
+    html_content = _build_toe_reference_html(payload)
+    stored = _save_st_intro_section(payload.user_id, "toe_reference", data, html_content)
+    return stored
+
+
+@app.get("/st-introduction/toe-overview/{user_id}")
+def get_toe_overview_section(user_id: str):
+    stored = _load_st_intro_section(user_id, "toe_overview")
+    return _prepare_section_response(stored, TOE_OVERVIEW_DEFAULTS)
+
+
+@app.post("/st-introduction/toe-overview")
+def save_toe_overview_section(payload: ToeOverviewPayload):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    data = {
+        "overview": _string_or_empty(payload.overview),
+        "toe_type": _string_or_empty(payload.toe_type),
+        "toe_usage": _string_or_empty(payload.toe_usage),
+        "toe_security_features": _string_or_empty(payload.toe_security_features),
+        "non_toe": _string_or_empty(payload.non_toe),
+    }
+
+    html_content = _build_toe_overview_html(payload)
+    stored = _save_st_intro_section(payload.user_id, "toe_overview", data, html_content)
+    return stored
+
+
+@app.get("/st-introduction/toe-description/{user_id}")
+def get_toe_description_section(user_id: str):
+    stored = _load_st_intro_section(user_id, "toe_description")
+    return _prepare_section_response(stored, TOE_DESCRIPTION_DEFAULTS)
+
+
+@app.post("/st-introduction/toe-description")
+def save_toe_description_section(payload: ToeDescriptionPayload):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    data = {
+        "physical_scope": _string_or_empty(payload.physical_scope),
+        "logical_scope": _string_or_empty(payload.logical_scope),
+    }
+
+    html_content = _build_toe_description_html(payload)
+    stored = _save_st_intro_section(payload.user_id, "toe_description", data, html_content)
+    return stored
+
+
+@app.post("/st-introduction/preview")
+def generate_st_introduction_preview(payload: StIntroductionPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    sections = {
+        "cover": _load_st_intro_section(payload.user_id, "cover"),
+        "st_reference": _load_st_intro_section(payload.user_id, "st_reference"),
+        "toe_reference": _load_st_intro_section(payload.user_id, "toe_reference"),
+        "toe_overview": _load_st_intro_section(payload.user_id, "toe_overview"),
+        "toe_description": _load_st_intro_section(payload.user_id, "toe_description"),
+    }
+
+    html_sections = [value["html"] for value in sections.values() if value and value.get("html")]
+    if not html_sections:
+        raise HTTPException(status_code=400, detail="No ST Introduction content available for preview")
+
+    combined_html = "\n\n".join(html_sections)
+    output_path = _build_html_preview_document(combined_html, payload.user_id, ST_INTRO_DOCX_ROOT)
+
+    available = {
+        key: bool(value and value.get("html"))
+        for key, value in sections.items()
+    }
+
+    return {
+        "path": f"/st-introduction/docx/{payload.user_id}/{output_path.name}",
+        "html": combined_html,
+        "sections": available,
+    }
 
 
 @app.post("/cover/upload")
