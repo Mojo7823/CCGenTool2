@@ -134,8 +134,8 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import api from '../services/api'
-import XMLTreeNode from '../components/XMLTreeNode.vue'
+import api from '../../services/api'
+import XMLTreeNode from '../XMLTreeNode.vue'
 import type { Header } from 'vue3-easy-data-table'
 import EasyDataTable from 'vue3-easy-data-table'
 import 'vue3-easy-data-table/dist/style.css'
