@@ -678,13 +678,25 @@ def _build_st_intro_combined_document(payload: STIntroPreviewRequest) -> Path:
         # Add cover image if present
         if image_path:
             try:
-                image_file = _resolve_uploaded_image_path(image_path, payload.user_id)
-                if image_file:
-                    image_paragraph = document.add_paragraph()
-                    image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-                    run = image_paragraph.add_run()
-                    run.add_picture(str(image_file), width=Mm(120))
-                    image_paragraph.space_after = Pt(12)
+                if image_path.startswith("data:image"):
+                    # Handle base64 image
+                    image_data = _decode_base64_image(image_path)
+                    if image_data:
+                        image_paragraph = document.add_paragraph()
+                        image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                        run = image_paragraph.add_run()
+                        image_stream = BytesIO(image_data)
+                        run.add_picture(image_stream, width=Mm(120))
+                        image_paragraph.space_after = Pt(12)
+                else:
+                    # Handle file path
+                    image_file = _resolve_uploaded_image_path(image_path, payload.user_id)
+                    if image_file:
+                        image_paragraph = document.add_paragraph()
+                        image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                        run = image_paragraph.add_run()
+                        run.add_picture(str(image_file), width=Mm(120))
+                        image_paragraph.space_after = Pt(12)
             except:
                 pass  # Skip if image not found
         
