@@ -135,6 +135,35 @@ def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Opt
     if not image_path:
         return None
 
+    # If it's a base64 image, decode and save temporarily
+    if image_path.startswith("data:image"):
+        try:
+            # Extract the base64 data
+            header, data = image_path.split(",", 1)
+            image_data = base64.b64decode(data)
+            
+            # Determine file extension from mime type
+            if "png" in header:
+                ext = ".png"
+            elif "jpeg" in header or "jpg" in header:
+                ext = ".jpg"
+            elif "bmp" in header:
+                ext = ".bmp"
+            else:
+                ext = ".jpg"  # default
+            
+            # Create temporary file
+            temp_dir = get_user_upload_dir(user_id, create=True)
+            filename = f"base64_{uuid.uuid4().hex}{ext}"
+            temp_file = temp_dir / filename
+            
+            with temp_file.open("wb") as f:
+                f.write(image_data)
+            
+            return temp_file
+        except Exception:
+            return None
+
     expected_prefix = f"/cover/uploads/{user_id}/"
     if not image_path.startswith(expected_prefix):
         raise HTTPException(status_code=400, detail="Invalid image reference for preview generation")
@@ -788,7 +817,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     section.left_margin = Mm(25)
     section.right_margin = Mm(25)
 
-    # Page 1: Add cover page if provided
+    # Section 1: Cover page only
     if payload.cover_data:
         cover_dict = payload.cover_data
         image_path = cover_dict.get("image_path")
@@ -835,20 +864,37 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
             run_label = paragraph.add_run(f"{label}: ")
             run_label.font.bold = True
             paragraph.add_run(value)
-        
-        # Add page break after cover
-        document.add_page_break()
 
-    # Page 2: Add ST Introduction heading
+    # Section 2: ST Introduction (combined without page breaks between subsections)
+    # Add page break before Section 2
+    document.add_page_break()
+    
+    # Add main section heading with introductory text
     heading = document.add_paragraph()
     heading_run = heading.add_run("1. Security Target Introduction")
     heading_run.font.size = Pt(20)
     heading_run.font.bold = True
     heading.space_after = Pt(12)
+    
+    # Add introductory text for Section 1
+    intro_text = document.add_paragraph()
+    intro_text.add_run("This section presents the following information required for a Common Criteria (CC) evaluation:")
+    intro_text.space_after = Pt(6)
+    
+    bullet_items = [
+        "Identifies the Security Target (ST) and the Target of Evaluation (TOE)",
+        "Specifies the security target conventions",
+        "Describes the organization of the security target"
+    ]
+    
+    for item in bullet_items:
+        bullet_para = document.add_paragraph(f"• {item}", style='List Bullet')
+        bullet_para.space_after = Pt(3)
+    
+    document.add_paragraph().space_after = Pt(12)
 
-    # Add ST Reference section
+    # Add ST Reference section (1.1)
     if payload.st_reference_html:
-        document.add_page_break()
         st_ref_heading = document.add_paragraph()
         st_ref_run = st_ref_heading.add_run("1.1 ST Reference")
         st_ref_run.font.size = Pt(18)
@@ -857,9 +903,8 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         st_ref_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.st_reference_html)
 
-    # Page 3: Add TOE Reference section
+    # Add TOE Reference section (1.2) - no page break
     if payload.toe_reference_html:
-        document.add_page_break()
         toe_ref_heading = document.add_paragraph()
         toe_ref_run = toe_ref_heading.add_run("1.2 TOE Reference")
         toe_ref_run.font.size = Pt(18)
@@ -868,9 +913,8 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         toe_ref_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_reference_html)
 
-    # Page 4: Add TOE Overview section
+    # Add TOE Overview section (1.3) - no page break
     if payload.toe_overview_html:
-        document.add_page_break()
         toe_overview_heading = document.add_paragraph()
         toe_overview_run = toe_overview_heading.add_run("1.3 TOE Overview")
         toe_overview_run.font.size = Pt(18)
@@ -879,9 +923,8 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         toe_overview_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_overview_html)
 
-    # Page 5: Add TOE Description section
+    # Add TOE Description section (1.4) - no page break
     if payload.toe_description_html:
-        document.add_page_break()
         toe_desc_heading = document.add_paragraph()
         toe_desc_run = toe_desc_heading.add_run("1.4 TOE Description")
         toe_desc_run.font.size = Pt(18)
@@ -890,7 +933,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         toe_desc_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_description_html)
 
-    # Page 6: Add Conformance Claims section
+    # Section 3: Conformance Claims (with page break before)
     if payload.conformance_claims_html:
         document.add_page_break()
         conf_heading = document.add_paragraph()
@@ -901,9 +944,13 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         conf_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.conformance_claims_html)
 
-    # Page 7: Add Security Functional Requirements section
-    if payload.sfr_list and len(payload.sfr_list) > 0:
+    # Section 4: Security Requirements (combined SFR and SAR with page break before)
+    has_security_reqs = (payload.sfr_list and len(payload.sfr_list) > 0) or (payload.sar_list and len(payload.sar_list) > 0)
+    if has_security_reqs:
         document.add_page_break()
+
+    # Add Security Functional Requirements section (3.)
+    if payload.sfr_list and len(payload.sfr_list) > 0:
         sfr_heading = document.add_paragraph()
         sfr_run = sfr_heading.add_run("3. Security Functional Requirements")
         sfr_run.font.size = Pt(20)
@@ -911,16 +958,15 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         sfr_heading.space_before = Pt(12)
         sfr_heading.space_after = Pt(12)
         
-        # Add each SFR item
+        # Add each SFR item with its preview content
         for sfr_item in payload.sfr_list:
             if sfr_item.get('preview'):
                 _append_html_to_document(document, sfr_item['preview'])
                 # Add spacing between items
                 document.add_paragraph().space_after = Pt(12)
 
-    # Page 8: Add Security Assurance Requirements section
+    # Add Security Assurance Requirements section (4.) - no page break, combined with SFR
     if payload.sar_list and len(payload.sar_list) > 0:
-        document.add_page_break()
         sar_heading = document.add_paragraph()
         sar_run = sar_heading.add_run("4. Security Assurance Requirements")
         sar_run.font.size = Pt(20)
@@ -935,7 +981,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
             eal_run.font.bold = True
             eal_para.space_after = Pt(12)
         
-        # Add each SAR item
+        # Add each SAR item with its preview content
         for sar_item in payload.sar_list:
             if sar_item.get('preview'):
                 _append_html_to_document(document, sar_item['preview'])

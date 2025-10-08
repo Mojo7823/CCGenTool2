@@ -139,6 +139,11 @@ const userToken = ref('')
 const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !!form.description)
 const imageUrl = computed(() => {
   if (!uploadedImagePath.value) return ''
+  // If it's a base64 string, use it directly
+  if (uploadedImagePath.value.startsWith('data:image')) {
+    return uploadedImagePath.value
+  }
+  // Otherwise, construct URL for legacy paths
   return api.getUri({ url: uploadedImagePath.value })
 })
 
@@ -188,20 +193,23 @@ async function uploadFile(file: File) {
   uploadError.value = ''
   try {
     validateImage(file)
-    const formData = new FormData()
-    formData.append('file', file)
-    const response = await api.post('/cover/upload', formData, {
-      params: { user_id: userToken.value },
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-    uploadedImagePath.value = response.data.path
-    hasUploaded.value = true
+    
+    // Convert image to base64
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const base64String = e.target?.result as string
+      uploadedImagePath.value = base64String
+      hasUploaded.value = true
+      resetUploadState()
+    }
+    reader.onerror = () => {
+      resetUploadState('Failed to read image file.')
+    }
+    reader.readAsDataURL(file)
   } catch (error: any) {
     console.error('Upload failed', error)
-    resetUploadState(error?.response?.data?.detail || error?.message || 'Failed to upload image.')
-    return
+    resetUploadState(error?.message || 'Failed to upload image.')
   }
-  resetUploadState()
 }
 
 function handleFileSelection(event: Event) {

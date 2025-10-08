@@ -22,14 +22,13 @@
         >
           {{ previewLoading ? 'Generating…' : 'Generate Preview' }}
         </button>
-        <a
+        <button
           v-if="generatedDocxPath && !previewLoading && !previewError"
-          :href="downloadUrl"
-          download="Security_Target_Document.docx"
+          @click="downloadDocument"
           class="btn primary"
         >
           Download DOCX
-        </a>
+        </button>
       </div>
     </div>
 
@@ -475,6 +474,33 @@ function saveProjectAsJSON() {
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
+}
+
+async function downloadDocument() {
+  if (!generatedDocxPath.value) return
+
+  try {
+    const response = await api.get(generatedDocxPath.value, { responseType: 'blob' })
+    const blob = new Blob([response.data], { 
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
+    })
+    const url = URL.createObjectURL(blob)
+    
+    // Open in new tab and trigger download
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'Security_Target_Document.docx'
+    link.target = '_blank'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    // Clean up the blob URL after a short delay
+    setTimeout(() => URL.revokeObjectURL(url), 100)
+  } catch (error: any) {
+    console.error('Download failed:', error)
+    previewError.value = error?.response?.data?.detail || error?.message || 'Failed to download document.'
+  }
 }
 
 const cleanupDocx = (keepalive = false) => {
