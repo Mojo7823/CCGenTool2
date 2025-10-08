@@ -56,6 +56,12 @@ SAR_DOCX_ROOT = Path(os.getenv("SAR_DOCX_DIR", Path(tempfile.gettempdir()) / "cc
 SAR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 ST_INTRO_DOCX_ROOT = Path(os.getenv("ST_INTRO_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_stintro_docx"))
 ST_INTRO_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+SPD_ASSUMPTIONS_DOCX_ROOT = Path(os.getenv("SPD_ASSUMPTIONS_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_spd_assumptions_docx"))
+SPD_ASSUMPTIONS_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+SPD_THREATS_DOCX_ROOT = Path(os.getenv("SPD_THREATS_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_spd_threats_docx"))
+SPD_THREATS_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+SPD_OSP_DOCX_ROOT = Path(os.getenv("SPD_OSP_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_spd_osp_docx"))
+SPD_OSP_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 FINAL_DOCX_ROOT = Path(os.getenv("FINAL_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_final_docx"))
 FINAL_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -126,6 +132,9 @@ class FinalPreviewRequest(BaseModel):
     toe_reference_html: Optional[str] = None
     toe_overview_html: Optional[str] = None
     toe_description_html: Optional[str] = None
+    spd_assumptions_html: Optional[str] = None
+    spd_threats_html: Optional[str] = None
+    spd_osp_html: Optional[str] = None
     conformance_claims_html: Optional[str] = None
     sfr_list: List[dict] = Field(default_factory=list)
     sar_list: List[dict] = Field(default_factory=list)
@@ -898,23 +907,88 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         toe_desc_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_description_html)
 
-    # Page 6: Add Conformance Claims section
+    # Section 3: Security Problem Definition
+    has_spd_content = (
+        payload.spd_assumptions_html or 
+        payload.spd_threats_html or 
+        payload.spd_osp_html
+    )
+    if has_spd_content:
+        document.add_page_break()
+        spd_heading = document.add_paragraph()
+        spd_run = spd_heading.add_run("3. Security Problem Definition")
+        spd_run.font.size = Pt(20)
+        spd_run.font.bold = True
+        spd_heading.space_before = Pt(12)
+        spd_heading.space_after = Pt(8)
+        
+        # Add SPD introduction
+        intro_para = document.add_paragraph("This chapter identifies the following:")
+        intro_para.space_after = Pt(6)
+        
+        bullet_list = document.add_paragraph(style='List Bullet')
+        bullet_list.add_run("Significant assumptions about the TOE's operational environment.")
+        bullet_list.space_after = Pt(2)
+        
+        bullet_list2 = document.add_paragraph(style='List Bullet')
+        bullet_list2.add_run("Threats that must be countered by the TOE or its environment")
+        bullet_list2.space_after = Pt(6)
+        
+        notation_para = document.add_paragraph(
+            "This document identifies assumptions as A.assumption with \"assumption\" specifying a unique name."
+        )
+        notation_para.space_after = Pt(2)
+        
+        notation_para2 = document.add_paragraph(
+            "Threats are identified as T.threat with \"threat\" specifying a unique name"
+        )
+        notation_para2.space_after = Pt(12)
+        
+        # Add Assumptions
+        if payload.spd_assumptions_html:
+            _append_html_to_document(document, payload.spd_assumptions_html)
+        
+        # Add Threats
+        if payload.spd_threats_html:
+            _append_html_to_document(document, payload.spd_threats_html)
+        
+        # Add OSP
+        if payload.spd_osp_html:
+            _append_html_to_document(document, payload.spd_osp_html)
+
+    # Section 4: Conformance Claims
     if payload.conformance_claims_html:
         document.add_page_break()
         conf_heading = document.add_paragraph()
-        conf_run = conf_heading.add_run("2. Conformance Claims")
+        conf_run = conf_heading.add_run("4. Conformance Claims")
         conf_run.font.size = Pt(20)
         conf_run.font.bold = True
         conf_heading.space_before = Pt(12)
         conf_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.conformance_claims_html)
 
-    # Page 7: Add Security Functional Requirements section
-    if payload.sfr_preview_html or (payload.sfr_list and len(payload.sfr_list) > 0):
+    # Section 5: Security Requirements
+    has_security_requirements = (
+        payload.sfr_preview_html or 
+        (payload.sfr_list and len(payload.sfr_list) > 0) or
+        payload.sar_preview_html or 
+        (payload.sar_list and len(payload.sar_list) > 0)
+    )
+    
+    if has_security_requirements:
         document.add_page_break()
+        sec_req_heading = document.add_paragraph()
+        sec_req_run = sec_req_heading.add_run("5. Security Requirements")
+        sec_req_run.font.size = Pt(20)
+        sec_req_run.font.bold = True
+        sec_req_heading.space_before = Pt(12)
+        sec_req_heading.space_after = Pt(12)
+
+    # Section 5.1: Security Functional Requirements
+    if payload.sfr_preview_html or (payload.sfr_list and len(payload.sfr_list) > 0):
         sfr_heading = document.add_paragraph()
-        sfr_run = sfr_heading.add_run("3. Security Functional Requirements")
-        sfr_run.font.size = Pt(20)
+        sfr_run = sfr_heading.add_run("5.1 Security Functional Requirements")
+        sfr_run.font.size = Pt(18)
         sfr_run.font.bold = True
         sfr_heading.space_before = Pt(12)
         sfr_heading.space_after = Pt(12)
@@ -927,12 +1001,11 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
                     _append_html_to_document(document, sfr_item['preview'])
                     document.add_paragraph().space_after = Pt(12)
 
-    # Page 8: Add Security Assurance Requirements section
+    # Section 5.2: Security Assurance Requirements
     if payload.sar_preview_html or (payload.sar_list and len(payload.sar_list) > 0):
-        document.add_page_break()
         sar_heading = document.add_paragraph()
-        sar_run = sar_heading.add_run("4. Security Assurance Requirements")
-        sar_run.font.size = Pt(20)
+        sar_run = sar_heading.add_run("5.2 Security Assurance Requirements")
+        sar_run.font.size = Pt(18)
         sar_run.font.bold = True
         sar_heading.space_before = Pt(12)
         sar_heading.space_after = Pt(12)
@@ -987,6 +1060,9 @@ app.mount("/cover/docx", StaticFiles(directory=str(COVER_DOCX_ROOT)), name="cove
 app.mount("/security/sfr/docx", StaticFiles(directory=str(SFR_DOCX_ROOT)), name="sfr-docx")
 app.mount("/security/sar/docx", StaticFiles(directory=str(SAR_DOCX_ROOT)), name="sar-docx")
 app.mount("/st-intro/docx", StaticFiles(directory=str(ST_INTRO_DOCX_ROOT)), name="st-intro-docx")
+app.mount("/spd/assumptions/docx", StaticFiles(directory=str(SPD_ASSUMPTIONS_DOCX_ROOT)), name="spd-assumptions-docx")
+app.mount("/spd/threats/docx", StaticFiles(directory=str(SPD_THREATS_DOCX_ROOT)), name="spd-threats-docx")
+app.mount("/spd/osp/docx", StaticFiles(directory=str(SPD_OSP_DOCX_ROOT)), name="spd-osp-docx")
 app.mount("/final-preview/docx", StaticFiles(directory=str(FINAL_DOCX_ROOT)), name="final-docx")
 
 
@@ -1461,6 +1537,33 @@ async def generate_st_intro_preview(payload: STIntroPreviewRequest):
     return {"path": f"/st-intro/docx/{payload.user_id}/{output_path.name}"}
 
 
+@app.post("/spd/assumptions/preview")
+async def generate_spd_assumptions_preview(payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_html_preview_document(payload.html_content, payload.user_id, SPD_ASSUMPTIONS_DOCX_ROOT)
+    return {"path": f"/spd/assumptions/docx/{payload.user_id}/{output_path.name}"}
+
+
+@app.post("/spd/threats/preview")
+async def generate_spd_threats_preview(payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_html_preview_document(payload.html_content, payload.user_id, SPD_THREATS_DOCX_ROOT)
+    return {"path": f"/spd/threats/docx/{payload.user_id}/{output_path.name}"}
+
+
+@app.post("/spd/osp/preview")
+async def generate_spd_osp_preview(payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_html_preview_document(payload.html_content, payload.user_id, SPD_OSP_DOCX_ROOT)
+    return {"path": f"/spd/osp/docx/{payload.user_id}/{output_path.name}"}
+
+
 @app.delete("/cover/upload/{user_id}")
 async def cleanup_cover_images(user_id: str):
     """Delete all temporary cover images associated with a user session."""
@@ -1506,6 +1609,117 @@ async def cleanup_st_intro_preview(user_id: str):
     if docx_dir.exists():
         shutil.rmtree(docx_dir)
     return {"status": "deleted"}
+
+
+@app.delete("/spd/assumptions/cleanup/{user_id}/{filename}")
+async def cleanup_spd_assumptions_file(user_id: str, filename: str):
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+    
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        raise HTTPException(status_code=400, detail="Invalid file name")
+    
+    docx_dir = _get_preview_docx_dir(SPD_ASSUMPTIONS_DOCX_ROOT, user_id, create=False)
+    file_path = docx_dir / safe_name
+    if file_path.exists():
+        file_path.unlink()
+    return {"status": "deleted"}
+
+
+@app.get("/spd/assumptions/download/{user_id}/{filename}")
+async def download_spd_assumptions_preview(user_id: str, filename: str):
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        raise HTTPException(status_code=400, detail="Invalid file name")
+
+    docx_dir = _get_preview_docx_dir(SPD_ASSUMPTIONS_DOCX_ROOT, user_id, create=False)
+    file_path = docx_dir / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="SPD_Assumptions_Preview.docx",
+    )
+
+
+@app.delete("/spd/threats/cleanup/{user_id}/{filename}")
+async def cleanup_spd_threats_file(user_id: str, filename: str):
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+    
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        raise HTTPException(status_code=400, detail="Invalid file name")
+    
+    docx_dir = _get_preview_docx_dir(SPD_THREATS_DOCX_ROOT, user_id, create=False)
+    file_path = docx_dir / safe_name
+    if file_path.exists():
+        file_path.unlink()
+    return {"status": "deleted"}
+
+
+@app.get("/spd/threats/download/{user_id}/{filename}")
+async def download_spd_threats_preview(user_id: str, filename: str):
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        raise HTTPException(status_code=400, detail="Invalid file name")
+
+    docx_dir = _get_preview_docx_dir(SPD_THREATS_DOCX_ROOT, user_id, create=False)
+    file_path = docx_dir / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="SPD_Threats_Preview.docx",
+    )
+
+
+@app.delete("/spd/osp/cleanup/{user_id}/{filename}")
+async def cleanup_spd_osp_file(user_id: str, filename: str):
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+    
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        raise HTTPException(status_code=400, detail="Invalid file name")
+    
+    docx_dir = _get_preview_docx_dir(SPD_OSP_DOCX_ROOT, user_id, create=False)
+    file_path = docx_dir / safe_name
+    if file_path.exists():
+        file_path.unlink()
+    return {"status": "deleted"}
+
+
+@app.get("/spd/osp/download/{user_id}/{filename}")
+async def download_spd_osp_preview(user_id: str, filename: str):
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        raise HTTPException(status_code=400, detail="Invalid file name")
+
+    docx_dir = _get_preview_docx_dir(SPD_OSP_DOCX_ROOT, user_id, create=False)
+    file_path = docx_dir / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="SPD_OSP_Preview.docx",
+    )
 
 
 @app.post("/final-preview")

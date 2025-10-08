@@ -93,6 +93,9 @@ import {
   type ConformanceClaimsSessionData,
   type SessionData,
   type SarSessionData,
+  type SPDAssumptionsSessionData,
+  type SPDThreatsSessionData,
+  type SPDOSPSessionData,
 } from '../services/sessionService'
 import {
   buildSarPreviewHtml,
@@ -107,6 +110,9 @@ type SectionKey =
   | 'toe-reference' 
   | 'toe-overview' 
   | 'toe-description'
+  | 'spd-assumptions'
+  | 'spd-threats'
+  | 'spd-osp'
   | 'conformance-claims'
   | 'sfr'
   | 'sar'
@@ -129,6 +135,9 @@ const sectionStatus = ref<SectionStatus[]>([
   { key: 'toe-reference', label: 'TOE Reference', complete: false },
   { key: 'toe-overview', label: 'TOE Overview', complete: false },
   { key: 'toe-description', label: 'TOE Description', complete: false },
+  { key: 'spd-assumptions', label: 'SPD - Assumptions', complete: false },
+  { key: 'spd-threats', label: 'SPD - Threats', complete: false },
+  { key: 'spd-osp', label: 'SPD - Organisational Security Policies', complete: false },
   { key: 'conformance-claims', label: 'Conformance Claims', complete: false },
   { key: 'sfr', label: 'Security Functional Requirements', complete: false },
   { key: 'sar', label: 'Security Assurance Requirements', complete: false },
@@ -206,12 +215,30 @@ function hasSARContent(data: SarSessionData | null): boolean {
   return Boolean(data.sarList && data.sarList.length > 0)
 }
 
+function hasSPDAssumptionsContent(data: SPDAssumptionsSessionData | null): boolean {
+  if (!data) return false
+  return Boolean(data.assumptionsList && data.assumptionsList.length > 0)
+}
+
+function hasSPDThreatsContent(data: SPDThreatsSessionData | null): boolean {
+  if (!data) return false
+  return Boolean(data.threatsList && data.threatsList.length > 0)
+}
+
+function hasSPDOSPContent(data: SPDOSPSessionData | null): boolean {
+  if (!data) return false
+  return Boolean(data.ospList && data.ospList.length > 0)
+}
+
 function updateSectionStatus() {
   const coverData = sessionService.loadCoverData()
   const stReferenceData = sessionService.loadSTReferenceData()
   const toeReferenceData = sessionService.loadTOEReferenceData()
   const toeOverviewData = sessionService.loadTOEOverviewData()
   const toeDescriptionData = sessionService.loadTOEDescriptionData()
+  const spdAssumptionsData = sessionService.loadSPDAssumptionsData()
+  const spdThreatsData = sessionService.loadSPDThreatsData()
+  const spdOspData = sessionService.loadSPDOSPData()
   const conformanceClaimsData = sessionService.loadConformanceClaimsData()
   const sfrData = sessionService.loadSfrData()
   const sarData = sessionService.loadSarData()
@@ -222,6 +249,9 @@ function updateSectionStatus() {
     { key: 'toe-reference', label: 'TOE Reference', complete: hasTOEReferenceContent(toeReferenceData) },
     { key: 'toe-overview', label: 'TOE Overview', complete: hasTOEOverviewContent(toeOverviewData) },
     { key: 'toe-description', label: 'TOE Description', complete: hasTOEDescriptionContent(toeDescriptionData) },
+    { key: 'spd-assumptions', label: 'SPD - Assumptions', complete: hasSPDAssumptionsContent(spdAssumptionsData) },
+    { key: 'spd-threats', label: 'SPD - Threats', complete: hasSPDThreatsContent(spdThreatsData) },
+    { key: 'spd-osp', label: 'SPD - Organisational Security Policies', complete: hasSPDOSPContent(spdOspData) },
     { key: 'conformance-claims', label: 'Conformance Claims', complete: hasConformanceClaimsContent(conformanceClaimsData) },
     { key: 'sfr', label: 'Security Functional Requirements', complete: hasSFRContent(sfrData) },
     { key: 'sar', label: 'Security Assurance Requirements', complete: hasSARContent(sarData) },
@@ -368,6 +398,95 @@ function buildConformanceClaimsHTML(): string {
   return html
 }
 
+function buildSPDAssumptionsHTML(): string {
+  const data = sessionService.loadSPDAssumptionsData()
+  if (!data || !data.assumptionsList || data.assumptionsList.length === 0) {
+    return ''
+  }
+
+  let html = '<h4>3.1 Assumptions</h4>'
+  html += '<p>The specific conditions listed in the following subsections are assumed to exist in the TOE\'s environment. '
+  html += 'These assumptions include both practical realities in the development of the TOE security requirements '
+  html += 'and the essential environmental conditions on the use of the TOE.</p>'
+  
+  html += '<table border="1" style="width: 100%; border-collapse: collapse;">'
+  html += '<thead><tr>'
+  html += '<th style="padding: 8px; background-color: #f0f0f0;">Assumptions</th>'
+  html += '<th style="padding: 8px; background-color: #f0f0f0;">Description</th>'
+  html += '</tr></thead>'
+  html += '<tbody>'
+  
+  data.assumptionsList.forEach((item: any) => {
+    html += '<tr>'
+    html += `<td style="padding: 8px; border: 1px solid #ccc;">${escapeHtml(item.assumption)}</td>`
+    html += `<td style="padding: 8px; border: 1px solid #ccc;">${item.description}</td>`
+    html += '</tr>'
+  })
+  
+  html += '</tbody></table>'
+  
+  return html
+}
+
+function buildSPDThreatsHTML(): string {
+  const data = sessionService.loadSPDThreatsData()
+  if (!data || !data.threatsList || data.threatsList.length === 0) {
+    return ''
+  }
+
+  let html = '<h4>3.2 Threats</h4>'
+  html += '<p>The following table defines the security threats for the TOE</p>'
+  
+  html += '<table border="1" style="width: 100%; border-collapse: collapse;">'
+  html += '<thead><tr>'
+  html += '<th style="padding: 8px; background-color: #f0f0f0;">Threats</th>'
+  html += '<th style="padding: 8px; background-color: #f0f0f0;">Description</th>'
+  html += '</tr></thead>'
+  html += '<tbody>'
+  
+  data.threatsList.forEach((item: any) => {
+    html += '<tr>'
+    html += `<td style="padding: 8px; border: 1px solid #ccc;">${escapeHtml(item.threat)}</td>`
+    html += `<td style="padding: 8px; border: 1px solid #ccc;">${item.description}</td>`
+    html += '</tr>'
+  })
+  
+  html += '</tbody></table>'
+  
+  return html
+}
+
+function buildSPDOSPHTML(): string {
+  const data = sessionService.loadSPDOSPData()
+  
+  let html = '<h4>3.3 Organisational Security Policies</h4>'
+  
+  if (!data || !data.ospList || data.ospList.length === 0) {
+    html += '<p>There are no Organizational Security Policies identified for this TOE.</p>'
+    return html
+  }
+
+  html += '<p>The following table defines the organizational security policies which are a set of rules, practices, and procedures imposed by an organization to address its security needs.</p>'
+  
+  html += '<table border="1" style="width: 100%; border-collapse: collapse;">'
+  html += '<thead><tr>'
+  html += '<th style="padding: 8px; background-color: #f0f0f0;">OSP</th>'
+  html += '<th style="padding: 8px; background-color: #f0f0f0;">Description</th>'
+  html += '</tr></thead>'
+  html += '<tbody>'
+  
+  data.ospList.forEach((item: any) => {
+    html += '<tr>'
+    html += `<td style="padding: 8px; border: 1px solid #ccc;">${escapeHtml(item.osp)}</td>`
+    html += `<td style="padding: 8px; border: 1px solid #ccc;">${item.description}</td>`
+    html += '</tr>'
+  })
+  
+  html += '</tbody></table>'
+  
+  return html
+}
+
 function escapeHtml(text: string): string {
   const div = document.createElement('div')
   div.textContent = text
@@ -396,6 +515,9 @@ async function generatePreview() {
     const toeReferenceHTML = buildTOEReferenceHTML()
     const toeOverviewHTML = buildTOEOverviewHTML()
     const toeDescriptionHTML = buildTOEDescriptionHTML()
+    const spdAssumptionsHTML = buildSPDAssumptionsHTML()
+    const spdThreatsHTML = buildSPDThreatsHTML()
+    const spdOspHTML = buildSPDOSPHTML()
     const conformanceClaimsHTML = buildConformanceClaimsHTML()
     const sfrData = sessionService.loadSfrData()
     const sarData = sessionService.loadSarData()
@@ -405,7 +527,7 @@ async function generatePreview() {
 
     const sfrPreviewHtml = sfrEntries.length
       ? buildSfrPreviewHtml(sfrEntries, {
-          rootSectionNumber: 3,
+          rootSectionNumber: 5,
           includeRootHeading: false,
           includeFunctionalHeading: false,
         })
@@ -413,7 +535,7 @@ async function generatePreview() {
 
     const sarPreviewHtml = sarEntries.length
       ? buildSarPreviewHtml(sarEntries, {
-          rootSectionNumber: 4,
+          rootSectionNumber: 5,
           selectedEal: sarData?.selectedEal || 'EAL 1',
           includeRootHeading: false,
           includeAssuranceHeading: false,
@@ -437,6 +559,9 @@ async function generatePreview() {
       toe_reference_html: toeReferenceHTML || null,
       toe_overview_html: toeOverviewHTML || null,
       toe_description_html: toeDescriptionHTML || null,
+      spd_assumptions_html: spdAssumptionsHTML || null,
+      spd_threats_html: spdThreatsHTML || null,
+      spd_osp_html: spdOspHTML || null,
       conformance_claims_html: conformanceClaimsHTML || null,
       sfr_list: sfrData?.sfrList || [],
       sar_list: sarData?.sarList || [],
