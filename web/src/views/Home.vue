@@ -3,7 +3,7 @@
     <h1 class="home-title">Welcome to Common Criteria Security Target Generation (CCGen) Tools</h1>
     <div class="home-actions">
       <RouterLink class="home-button primary" to="/settings">Open an existing Security Target Project</RouterLink>
-      <RouterLink class="home-button" to="/cover">Create New Security Target</RouterLink>
+      <RouterLink class="home-button" to="/st-intro/cover">Create New Security Target</RouterLink>
       <RouterLink class="home-button outline" to="/generator">Automatically Generate Security Target</RouterLink>
     </div>
   </div>
