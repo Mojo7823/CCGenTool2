@@ -10,6 +10,8 @@ import TOEReference from '../views/TOEReference.vue'
 import TOEOverview from '../views/TOEOverview.vue'
 import TOEDescription from '../views/TOEDescription.vue'
 import STIntroPreview from '../views/STIntroPreview.vue'
+import ConformanceClaims from '../views/ConformanceClaims.vue'
+import FinalDocumentPreview from '../views/FinalDocumentPreview.vue'
 
 const routes = [
   { path: '/', name: 'home', component: Home },
@@ -24,6 +26,8 @@ const routes = [
   { path: '/st-intro/preview', name: 'st-intro-preview', component: STIntroPreview },
   { path: '/security/sfr', name: 'security-sfr', component: SecurityFunctionalRequirements },
   { path: '/security/sar', name: 'security-sar', component: SecurityAssuranceRequirements },
+  { path: '/conformanceclaims', name: 'conformance-claims', component: ConformanceClaims },
+  { path: '/final-preview', name: 'final-preview', component: FinalDocumentPreview },
 ]
 
 const router = createRouter({

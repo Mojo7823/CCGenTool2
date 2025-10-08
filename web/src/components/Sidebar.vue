@@ -39,6 +39,12 @@
       </div>
     </li>
     <li>
+      <RouterLink to="/conformanceclaims" active-class="active">Conformance Claims</RouterLink>
+    </li>
+    <li>
+      <RouterLink to="/final-preview" active-class="active">Final Document Preview</RouterLink>
+    </li>
+    <li>
       <RouterLink to="/settings" active-class="active">Settings</RouterLink>
     </li>
   </ul>
