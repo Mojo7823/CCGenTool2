@@ -76,6 +76,18 @@ export interface ConformanceClaimsSessionData {
   timestamp: number
 }
 
+export interface SpdEntry {
+  id: string
+  title: string
+  description: string
+}
+
+export interface SpdSessionData {
+  items: SpdEntry[]
+  userToken: string
+  timestamp: number
+}
+
 class SessionService {
   private readonly STORAGE_KEY = 'ccgentool2_session'
   private readonly SAR_STORAGE_KEY = 'ccgentool2_sar_session'
@@ -85,6 +97,9 @@ class SessionService {
   private readonly TOE_OVERVIEW_STORAGE_KEY = 'ccgentool2_toeoverview_session'
   private readonly TOE_DESC_STORAGE_KEY = 'ccgentool2_toedesc_session'
   private readonly CONFORMANCE_CLAIMS_STORAGE_KEY = 'ccgentool2_conformance_session'
+  private readonly SPD_ASSUMPTIONS_STORAGE_KEY = 'ccgentool2_spd_assumptions_session'
+  private readonly SPD_THREATS_STORAGE_KEY = 'ccgentool2_spd_threats_session'
+  private readonly SPD_OSP_STORAGE_KEY = 'ccgentool2_spd_osp_session'
   private readonly TOKEN_KEY = 'ccgentool2_user_token'
   private userToken: string
 
@@ -601,6 +616,95 @@ class SessionService {
       localStorage.removeItem(storageKey)
     } catch (error) {
       console.error('Error clearing Conformance Claims data from session:', error)
+    }
+  }
+
+  private saveSpdSectionData(baseKey: string, items: SpdEntry[]): void {
+    const sessionData: SpdSessionData = {
+      items,
+      userToken: this.userToken,
+      timestamp: Date.now()
+    }
+
+    try {
+      const storageKey = this.getNamespacedKey(baseKey)
+      localStorage.setItem(storageKey, JSON.stringify(sessionData))
+    } catch (error) {
+      console.error(`Error saving SPD data (${baseKey}) to session:`, error)
+    }
+  }
+
+  private loadSpdSectionData(baseKey: string): SpdEntry[] {
+    try {
+      const storageKey = this.getNamespacedKey(baseKey)
+      const data = localStorage.getItem(storageKey)
+
+      if (!data) {
+        return []
+      }
+
+      const sessionData: SpdSessionData = JSON.parse(data)
+
+      if (sessionData.userToken !== this.userToken) {
+        console.warn('Session token mismatch, ignoring stored SPD data')
+        return []
+      }
+
+      return Array.isArray(sessionData.items) ? sessionData.items : []
+    } catch (error) {
+      console.error(`Error loading SPD data (${baseKey}) from session:`, error)
+      return []
+    }
+  }
+
+  saveSpdAssumptions(items: SpdEntry[]): void {
+    this.saveSpdSectionData(this.SPD_ASSUMPTIONS_STORAGE_KEY, items)
+  }
+
+  loadSpdAssumptions(): SpdEntry[] {
+    return this.loadSpdSectionData(this.SPD_ASSUMPTIONS_STORAGE_KEY)
+  }
+
+  clearSpdAssumptions(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_ASSUMPTIONS_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing SPD assumptions from session:', error)
+    }
+  }
+
+  saveSpdThreats(items: SpdEntry[]): void {
+    this.saveSpdSectionData(this.SPD_THREATS_STORAGE_KEY, items)
+  }
+
+  loadSpdThreats(): SpdEntry[] {
+    return this.loadSpdSectionData(this.SPD_THREATS_STORAGE_KEY)
+  }
+
+  clearSpdThreats(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_THREATS_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing SPD threats from session:', error)
+    }
+  }
+
+  saveSpdOsp(items: SpdEntry[]): void {
+    this.saveSpdSectionData(this.SPD_OSP_STORAGE_KEY, items)
+  }
+
+  loadSpdOsp(): SpdEntry[] {
+    return this.loadSpdSectionData(this.SPD_OSP_STORAGE_KEY)
+  }
+
+  clearSpdOsp(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_OSP_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing SPD OSP from session:', error)
     }
   }
 }

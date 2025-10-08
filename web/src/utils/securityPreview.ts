@@ -336,7 +336,7 @@ export const buildSarPreviewHtml = (
   `
 
   let sectionsHtml = ''
-  const classBaseNumber = `${rootSectionNumber}.${includeAssuranceHeading ? '3' : '3'}`
+  const classBaseNumber = `${rootSectionNumber}.${includeAssuranceHeading ? '3' : '2'}`
   classOrder.forEach((classCode, classIndex) => {
     const classData = groups[classCode]
     if (!classData) {

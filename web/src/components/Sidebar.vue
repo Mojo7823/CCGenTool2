@@ -4,6 +4,9 @@
       <RouterLink to="/" active-class="active">Home</RouterLink>
     </li>
     <li>
+      <RouterLink to="/generator" active-class="active">Generator</RouterLink>
+    </li>
+    <li>
       <div class="accordion">
         <div class="accordion-header" @click="stIntroOpen = !stIntroOpen">
           <span>ST Introduction</span>
@@ -17,6 +20,21 @@
             <li><RouterLink to="/st-intro/toe-overview" active-class="active">TOE Overview</RouterLink></li>
             <li><RouterLink to="/st-intro/toe-description" active-class="active">TOE Description</RouterLink></li>
             <li><RouterLink to="/st-intro/preview" active-class="active">ST Introduction Preview</RouterLink></li>
+          </ul>
+        </div>
+      </div>
+    </li>
+    <li>
+      <div class="accordion">
+        <div class="accordion-header" @click="spdOpen = !spdOpen">
+          <span>Security Problem Definition</span>
+          <span>{{ spdOpen ? '▾' : '▸' }}</span>
+        </div>
+        <div v-if="spdOpen" class="accordion-content">
+          <ul class="menu">
+            <li><RouterLink to="/spd/assumptions" active-class="active">Assumptions</RouterLink></li>
+            <li><RouterLink to="/spd/threats" active-class="active">Threats</RouterLink></li>
+            <li><RouterLink to="/spd/osp" active-class="active">Organisational Security Policies</RouterLink></li>
           </ul>
         </div>
       </div>
@@ -51,6 +69,7 @@
 import { ref } from 'vue'
 const stIntroOpen = ref(true)
 const securityOpen = ref(true)
+const spdOpen = ref(true)
 </script>
 
 <style scoped>

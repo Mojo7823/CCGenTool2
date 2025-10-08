@@ -41,8 +41,16 @@
       <ul class="status-list">
         <li v-for="section in sectionStatus" :key="section.key">
           <span class="status-label">{{ section.label }}</span>
-          <span :class="['status-indicator', section.complete ? 'completed' : 'missing']">
-            {{ section.complete ? 'Completed' : 'Missing' }}
+          <span
+            :class="[
+              'status-indicator',
+              section.complete ? 'completed' : section.optional ? 'optional' : 'missing'
+            ]"
+          >
+            {{
+              section.statusLabel
+                || (section.complete ? 'Completed' : section.optional ? 'Optional' : 'Missing')
+            }}
           </span>
         </li>
       </ul>
@@ -93,6 +101,7 @@ import {
   type ConformanceClaimsSessionData,
   type SessionData,
   type SarSessionData,
+  type SpdEntry,
 } from '../services/sessionService'
 import {
   buildSarPreviewHtml,
@@ -100,13 +109,17 @@ import {
   type SarPreviewEntry,
   type SfrPreviewEntry,
 } from '../utils/securityPreview'
+import { buildSecurityProblemDefinitionHtml } from '../utils/spd'
 
-type SectionKey = 
-  | 'cover' 
-  | 'st-reference' 
-  | 'toe-reference' 
-  | 'toe-overview' 
+type SectionKey =
+  | 'cover'
+  | 'st-reference'
+  | 'toe-reference'
+  | 'toe-overview'
   | 'toe-description'
+  | 'spd-assumptions'
+  | 'spd-threats'
+  | 'spd-osp'
   | 'conformance-claims'
   | 'sfr'
   | 'sar'
@@ -115,6 +128,8 @@ interface SectionStatus {
   key: SectionKey
   label: string
   complete: boolean
+  optional?: boolean
+  statusLabel?: string
 }
 
 const previewLoading = ref(false)
@@ -129,13 +144,24 @@ const sectionStatus = ref<SectionStatus[]>([
   { key: 'toe-reference', label: 'TOE Reference', complete: false },
   { key: 'toe-overview', label: 'TOE Overview', complete: false },
   { key: 'toe-description', label: 'TOE Description', complete: false },
+  { key: 'spd-assumptions', label: 'Assumptions', complete: false },
+  { key: 'spd-threats', label: 'Threats', complete: false },
+  {
+    key: 'spd-osp',
+    label: 'Organisational Security Policies',
+    complete: false,
+    optional: true,
+    statusLabel: 'Optional',
+  },
   { key: 'conformance-claims', label: 'Conformance Claims', complete: false },
   { key: 'sfr', label: 'Security Functional Requirements', complete: false },
   { key: 'sar', label: 'Security Assurance Requirements', complete: false },
 ])
 
-const missingSections = computed(() => 
-  sectionStatus.value.filter(section => !section.complete).map(section => section.label)
+const missingSections = computed(() =>
+  sectionStatus.value
+    .filter(section => !section.complete && !section.optional)
+    .map(section => section.label)
 )
 
 const hasData = computed(() => sectionStatus.value.some(section => section.complete))
@@ -206,6 +232,10 @@ function hasSARContent(data: SarSessionData | null): boolean {
   return Boolean(data.sarList && data.sarList.length > 0)
 }
 
+function hasSpdSectionContent(entries: SpdEntry[] | null): boolean {
+  return Array.isArray(entries) && entries.length > 0
+}
+
 function updateSectionStatus() {
   const coverData = sessionService.loadCoverData()
   const stReferenceData = sessionService.loadSTReferenceData()
@@ -215,6 +245,13 @@ function updateSectionStatus() {
   const conformanceClaimsData = sessionService.loadConformanceClaimsData()
   const sfrData = sessionService.loadSfrData()
   const sarData = sessionService.loadSarData()
+  const spdAssumptions = sessionService.loadSpdAssumptions()
+  const spdThreats = sessionService.loadSpdThreats()
+  const spdOsp = sessionService.loadSpdOsp()
+
+  const assumptionsComplete = hasSpdSectionContent(spdAssumptions)
+  const threatsComplete = hasSpdSectionContent(spdThreats)
+  const ospComplete = hasSpdSectionContent(spdOsp)
 
   sectionStatus.value = [
     { key: 'cover', label: 'Cover', complete: hasCoverContent(coverData) },
@@ -222,6 +259,15 @@ function updateSectionStatus() {
     { key: 'toe-reference', label: 'TOE Reference', complete: hasTOEReferenceContent(toeReferenceData) },
     { key: 'toe-overview', label: 'TOE Overview', complete: hasTOEOverviewContent(toeOverviewData) },
     { key: 'toe-description', label: 'TOE Description', complete: hasTOEDescriptionContent(toeDescriptionData) },
+    { key: 'spd-assumptions', label: 'Assumptions', complete: assumptionsComplete },
+    { key: 'spd-threats', label: 'Threats', complete: threatsComplete },
+    {
+      key: 'spd-osp',
+      label: 'Organisational Security Policies',
+      complete: ospComplete,
+      optional: true,
+      statusLabel: ospComplete ? 'Completed' : 'Optional',
+    },
     { key: 'conformance-claims', label: 'Conformance Claims', complete: hasConformanceClaimsContent(conformanceClaimsData) },
     { key: 'sfr', label: 'Security Functional Requirements', complete: hasSFRContent(sfrData) },
     { key: 'sar', label: 'Security Assurance Requirements', complete: hasSARContent(sarData) },
@@ -399,13 +445,22 @@ async function generatePreview() {
     const conformanceClaimsHTML = buildConformanceClaimsHTML()
     const sfrData = sessionService.loadSfrData()
     const sarData = sessionService.loadSarData()
+    const spdAssumptions = sessionService.loadSpdAssumptions()
+    const spdThreats = sessionService.loadSpdThreats()
+    const spdOsp = sessionService.loadSpdOsp()
 
     const sfrEntries = (sfrData?.sfrList || []) as unknown as SfrPreviewEntry[]
     const sarEntries = (sarData?.sarList || []) as unknown as SarPreviewEntry[]
 
+    const spdHtml = buildSecurityProblemDefinitionHtml({
+      assumptions: spdAssumptions,
+      threats: spdThreats,
+      osp: spdOsp,
+    })
+
     const sfrPreviewHtml = sfrEntries.length
       ? buildSfrPreviewHtml(sfrEntries, {
-          rootSectionNumber: 3,
+          rootSectionNumber: 5,
           includeRootHeading: false,
           includeFunctionalHeading: false,
         })
@@ -413,7 +468,7 @@ async function generatePreview() {
 
     const sarPreviewHtml = sarEntries.length
       ? buildSarPreviewHtml(sarEntries, {
-          rootSectionNumber: 4,
+          rootSectionNumber: 5,
           selectedEal: sarData?.selectedEal || 'EAL 1',
           includeRootHeading: false,
           includeAssuranceHeading: false,
@@ -437,6 +492,7 @@ async function generatePreview() {
       toe_reference_html: toeReferenceHTML || null,
       toe_overview_html: toeOverviewHTML || null,
       toe_description_html: toeDescriptionHTML || null,
+      spd_html: spdHtml || null,
       conformance_claims_html: conformanceClaimsHTML || null,
       sfr_list: sfrData?.sfrList || [],
       sar_list: sarData?.sarList || [],
@@ -496,6 +552,9 @@ function saveProjectAsJSON() {
     conformanceClaimsData: sessionService.loadConformanceClaimsData(),
     sfrData: sessionService.loadSfrData(),
     sarData: sessionService.loadSarData(),
+    spdAssumptions: sessionService.loadSpdAssumptions(),
+    spdThreats: sessionService.loadSpdThreats(),
+    spdOsp: sessionService.loadSpdOsp(),
     exportedAt: new Date().toISOString(),
   }
 
@@ -669,6 +728,12 @@ onBeforeUnmount(() => {
   background: rgba(239, 68, 68, 0.15);
   color: #f87171;
   border-color: rgba(239, 68, 68, 0.4);
+}
+
+.status-indicator.optional {
+  background: rgba(250, 204, 21, 0.12);
+  color: #facc15;
+  border-color: rgba(250, 204, 21, 0.35);
 }
 
 .status-warning {
