@@ -96,6 +96,7 @@ class CoverPreviewRequest(BaseModel):
     manufacturer: Optional[str] = None
     date: Optional[str] = None
     image_path: Optional[str] = Field(None, alias="image_path")
+    image_base64: Optional[str] = Field(None, alias="image_base64")
 
 
 class HtmlPreviewRequest(BaseModel):
@@ -147,6 +148,43 @@ def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Opt
     return image_file
 
 
+def _add_cover_image_to_document(document: Document, image_path: Optional[str], image_base64: Optional[str], user_id: str) -> None:
+    """Helper function to add cover image to document from either base64 or path."""
+    # Try base64 first
+    if image_base64:
+        try:
+            # Extract the base64 data (remove data:image/...;base64, prefix if present)
+            base64_data = image_base64
+            if ',' in base64_data:
+                base64_data = base64_data.split(',', 1)[1]
+            
+            image_data = base64.b64decode(base64_data)
+            image_stream = BytesIO(image_data)
+            
+            image_paragraph = document.add_paragraph()
+            image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+            run = image_paragraph.add_run()
+            run.add_picture(image_stream, width=Mm(120))
+            image_paragraph.space_after = Pt(12)
+            return
+        except Exception as e:
+            print(f"Failed to decode base64 image: {e}")
+            # Continue to try path method
+    
+    # Fallback to path
+    if image_path:
+        try:
+            image_file = _resolve_uploaded_image_path(image_path, user_id)
+            if image_file:
+                image_paragraph = document.add_paragraph()
+                image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                run = image_paragraph.add_run()
+                run.add_picture(str(image_file), width=Mm(120))
+                image_paragraph.space_after = Pt(12)
+        except:
+            pass  # Skip if image not found
+
+
 def _format_cover_date(date_value: Optional[str]) -> str:
     if not date_value:
         return "—"
@@ -159,7 +197,6 @@ def _format_cover_date(date_value: Optional[str]) -> str:
 
 
 def _build_cover_document(payload: CoverPreviewRequest) -> Path:
-    image_file = _resolve_uploaded_image_path(payload.image_path, payload.user_id)
     docx_dir = get_user_docx_dir(payload.user_id, create=True)
 
     # Clear previous previews for the user to avoid stale documents piling up
@@ -175,12 +212,8 @@ def _build_cover_document(payload: CoverPreviewRequest) -> Path:
     section.left_margin = Mm(25)
     section.right_margin = Mm(25)
 
-    if image_file:
-        image_paragraph = document.add_paragraph()
-        image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-        run = image_paragraph.add_run()
-        run.add_picture(str(image_file), width=Mm(120))
-        image_paragraph.space_after = Pt(12)
+    # Add cover image if present (base64 or path)
+    _add_cover_image_to_document(document, payload.image_path, payload.image_base64, payload.user_id)
 
     title_text = payload.title.strip() if payload.title else "Security Target Title"
     title_paragraph = document.add_paragraph()
@@ -657,19 +690,10 @@ def _build_st_intro_combined_document(payload: STIntroPreviewRequest) -> Path:
     if payload.cover_data:
         cover_dict = payload.cover_data
         image_path = cover_dict.get("image_path")
+        image_base64 = cover_dict.get("image_base64")
         
         # Add cover image if present
-        if image_path:
-            try:
-                image_file = _resolve_uploaded_image_path(image_path, payload.user_id)
-                if image_file:
-                    image_paragraph = document.add_paragraph()
-                    image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-                    run = image_paragraph.add_run()
-                    run.add_picture(str(image_file), width=Mm(120))
-                    image_paragraph.space_after = Pt(12)
-            except:
-                pass  # Skip if image not found
+        _add_cover_image_to_document(document, image_path, image_base64, payload.user_id)
         
         # Add cover title
         title_text = cover_dict.get("title", "").strip() or "Security Target Title"
@@ -792,19 +816,10 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     if payload.cover_data:
         cover_dict = payload.cover_data
         image_path = cover_dict.get("image_path")
+        image_base64 = cover_dict.get("image_base64")
         
         # Add cover image if present
-        if image_path:
-            try:
-                image_file = _resolve_uploaded_image_path(image_path, payload.user_id)
-                if image_file:
-                    image_paragraph = document.add_paragraph()
-                    image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-                    run = image_paragraph.add_run()
-                    run.add_picture(str(image_file), width=Mm(120))
-                    image_paragraph.space_after = Pt(12)
-            except:
-                pass  # Skip if image not found
+        _add_cover_image_to_document(document, image_path, image_base64, payload.user_id)
         
         # Add cover title
         title_text = cover_dict.get("title", "").strip() or "Security Target Title"
@@ -836,19 +851,28 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
             run_label.font.bold = True
             paragraph.add_run(value)
         
-        # Add page break after cover
+        # Add page break after cover (Section 1)
         document.add_page_break()
 
-    # Page 2: Add ST Introduction heading
+    # Section 2: ST Introduction heading and subsections (combined, no page breaks within)
     heading = document.add_paragraph()
     heading_run = heading.add_run("1. Security Target Introduction")
     heading_run.font.size = Pt(20)
     heading_run.font.bold = True
     heading.space_after = Pt(12)
+    
+    # Add introduction text
+    intro_text = (
+        "This section presents the following information required for a Common Criteria (CC) evaluation:\n"
+        "• Identifies the Security Target (ST) and the Target of Evaluation (TOE)\n"
+        "• Specifies the security target conventions,\n"
+        "• Describes the organization of the security target"
+    )
+    intro_para = document.add_paragraph(intro_text)
+    intro_para.space_after = Pt(12)
 
     # Add ST Reference section
     if payload.st_reference_html:
-        document.add_page_break()
         st_ref_heading = document.add_paragraph()
         st_ref_run = st_ref_heading.add_run("1.1 ST Reference")
         st_ref_run.font.size = Pt(18)
@@ -857,9 +881,8 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         st_ref_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.st_reference_html)
 
-    # Page 3: Add TOE Reference section
+    # Add TOE Reference section
     if payload.toe_reference_html:
-        document.add_page_break()
         toe_ref_heading = document.add_paragraph()
         toe_ref_run = toe_ref_heading.add_run("1.2 TOE Reference")
         toe_ref_run.font.size = Pt(18)
@@ -868,9 +891,8 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         toe_ref_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_reference_html)
 
-    # Page 4: Add TOE Overview section
+    # Add TOE Overview section
     if payload.toe_overview_html:
-        document.add_page_break()
         toe_overview_heading = document.add_paragraph()
         toe_overview_run = toe_overview_heading.add_run("1.3 TOE Overview")
         toe_overview_run.font.size = Pt(18)
@@ -879,9 +901,8 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         toe_overview_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_overview_html)
 
-    # Page 5: Add TOE Description section
+    # Add TOE Description section
     if payload.toe_description_html:
-        document.add_page_break()
         toe_desc_heading = document.add_paragraph()
         toe_desc_run = toe_desc_heading.add_run("1.4 TOE Description")
         toe_desc_run.font.size = Pt(18)
@@ -890,7 +911,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         toe_desc_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_description_html)
 
-    # Page 6: Add Conformance Claims section
+    # Section 3: Add Conformance Claims section (page break before)
     if payload.conformance_claims_html:
         document.add_page_break()
         conf_heading = document.add_paragraph()
@@ -901,9 +922,15 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         conf_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.conformance_claims_html)
 
-    # Page 7: Add Security Functional Requirements section
-    if payload.sfr_list and len(payload.sfr_list) > 0:
+    # Section 4: Add Security Requirements (page break before, combined SFR and SAR)
+    has_sfr = payload.sfr_list and len(payload.sfr_list) > 0
+    has_sar = payload.sar_list and len(payload.sar_list) > 0
+    
+    if has_sfr or has_sar:
         document.add_page_break()
+    
+    # Add Security Functional Requirements section
+    if has_sfr:
         sfr_heading = document.add_paragraph()
         sfr_run = sfr_heading.add_run("3. Security Functional Requirements")
         sfr_run.font.size = Pt(20)
@@ -918,9 +945,8 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
                 # Add spacing between items
                 document.add_paragraph().space_after = Pt(12)
 
-    # Page 8: Add Security Assurance Requirements section
-    if payload.sar_list and len(payload.sar_list) > 0:
-        document.add_page_break()
+    # Add Security Assurance Requirements section (no page break, same section)
+    if has_sar:
         sar_heading = document.add_paragraph()
         sar_run = sar_heading.add_run("4. Security Assurance Requirements")
         sar_run.font.size = Pt(20)

@@ -118,6 +118,7 @@ const dragActive = ref(false)
 const uploading = ref(false)
 const uploadError = ref('')
 const uploadedImagePath = ref<string | null>(null)
+const uploadedImageBase64 = ref<string | null>(null)
 const showPreview = ref(false)
 const previewLoading = ref(false)
 const previewError = ref('')
@@ -138,12 +139,17 @@ const userToken = ref('')
 
 const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !!form.description)
 const imageUrl = computed(() => {
+  // Use base64 if available (for loaded session data)
+  if (uploadedImageBase64.value) {
+    return uploadedImageBase64.value
+  }
+  // Otherwise use server path (during upload)
   if (!uploadedImagePath.value) return ''
   return api.getUri({ url: uploadedImagePath.value })
 })
 
 function saveSessionData() {
-  sessionService.saveCoverData(form, uploadedImagePath.value)
+  sessionService.saveCoverData(form, uploadedImagePath.value, uploadedImageBase64.value)
 }
 
 function loadSessionData() {
@@ -151,7 +157,8 @@ function loadSessionData() {
   if (data) {
     Object.assign(form, data.form)
     uploadedImagePath.value = data.uploadedImagePath
-    if (data.uploadedImagePath) {
+    uploadedImageBase64.value = data.uploadedImageBase64 || null
+    if (data.uploadedImagePath || data.uploadedImageBase64) {
       hasUploaded.value = true
     }
   }
@@ -163,6 +170,10 @@ watch(form, () => {
 }, { deep: true })
 
 watch(uploadedImagePath, () => {
+  saveSessionData()
+})
+
+watch(uploadedImageBase64, () => {
   saveSessionData()
 })
 
@@ -188,6 +199,12 @@ async function uploadFile(file: File) {
   uploadError.value = ''
   try {
     validateImage(file)
+    
+    // Convert image to base64
+    const base64 = await fileToBase64(file)
+    uploadedImageBase64.value = base64
+    
+    // Also upload to server for immediate preview
     const formData = new FormData()
     formData.append('file', file)
     const response = await api.post('/cover/upload', formData, {
@@ -202,6 +219,18 @@ async function uploadFile(file: File) {
     return
   }
   resetUploadState()
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      resolve(result)
+    }
+    reader.onerror = error => reject(error)
+    reader.readAsDataURL(file)
+  })
 }
 
 function handleFileSelection(event: Event) {
@@ -243,6 +272,7 @@ async function openPreview() {
       manufacturer: form.manufacturer,
       date: form.date,
       image_path: uploadedImagePath.value,
+      image_base64: uploadedImageBase64.value,
     }
 
     const response = await api.post('/cover/preview', payload)
@@ -307,6 +337,7 @@ function cleanupUploads(keepalive = false) {
     fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
     hasUploaded.value = false
     uploadedImagePath.value = null
+    uploadedImageBase64.value = null
   }
 
   cleanupDocx(keepalive)
