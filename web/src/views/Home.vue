@@ -87,7 +87,11 @@ function loadProject(event: Event) {
 
       // Load all data back into session storage
       if (projectData.coverData) {
-        sessionService.saveCoverData(projectData.coverData.form, projectData.coverData.uploadedImagePath)
+        sessionService.saveCoverData(
+          projectData.coverData.form,
+          projectData.coverData.uploadedImagePath ?? null,
+          projectData.coverData.imageBase64 ?? null,
+        )
       }
       if (projectData.stReferenceData) {
         sessionService.saveSTReferenceData({

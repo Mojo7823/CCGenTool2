@@ -22,14 +22,14 @@
         >
           {{ previewLoading ? 'Generating…' : 'Generate Preview' }}
         </button>
-        <a
+        <button
           v-if="generatedDocxPath && !previewLoading && !previewError"
-          :href="downloadUrl"
-          download="Security_Target_Document.docx"
           class="btn primary"
+          type="button"
+          @click="downloadDocx"
         >
           Download DOCX
-        </a>
+        </button>
       </div>
     </div>
 
@@ -143,6 +143,7 @@ function hasCoverContent(data: CoverSessionData | null): boolean {
   if (!data) return false
   const form = data.form || {}
   return Boolean(
+    data.imageBase64 ||
     data.uploadedImagePath ||
     form.title ||
     form.version ||
@@ -399,6 +400,7 @@ async function generatePreview() {
             manufacturer: coverData.form.manufacturer,
             date: coverData.form.date,
             image_path: coverData.uploadedImagePath,
+            image_base64: coverData.imageBase64,
           }
         : null,
       st_reference_html: stReferenceHTML || null,
@@ -488,8 +490,20 @@ const cleanupDocx = (keepalive = false) => {
   hasGeneratedDocx.value = false
 }
 
-const handleBeforeUnload = () => cleanupDocx(true)
-const handlePageHide = () => cleanupDocx(true)
+function downloadDocx() {
+  if (!downloadUrl.value) {
+    return
+  }
+
+  const link = document.createElement('a')
+  link.href = downloadUrl.value
+  link.target = '_blank'
+  link.rel = 'noopener'
+  link.download = 'Security_Target_Document.docx'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
 
 const handleWindowFocus = () => updateSectionStatus()
 
@@ -497,8 +511,6 @@ const addPreviewListeners = () => {
   if (typeof window === 'undefined') {
     return
   }
-  window.addEventListener('beforeunload', handleBeforeUnload)
-  window.addEventListener('pagehide', handlePageHide)
   window.addEventListener('focus', handleWindowFocus)
 }
 
@@ -506,8 +518,6 @@ const removePreviewListeners = () => {
   if (typeof window === 'undefined') {
     return
   }
-  window.removeEventListener('beforeunload', handleBeforeUnload)
-  window.removeEventListener('pagehide', handlePageHide)
   window.removeEventListener('focus', handleWindowFocus)
 }
 
