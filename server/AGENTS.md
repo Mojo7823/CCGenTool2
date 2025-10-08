@@ -8,6 +8,14 @@
 - **lxml** (`lxml.etree`, `lxml.html`) parses Common Criteria XML and sanitises HTML previews.
 - **Other helpers**: `tempfile`, `uuid`, `pathlib.Path`, and `asynccontextmanager` manage filesystem lifecycles for uploads and previews.
 
+## Workflow Integration Requirements
+The backend must keep the following product rules intact because the Vue app and `/final-preview` rely on them to decide completion status and to render compiled documents:
+1. **HTML-first output** – every module endpoint that returns preview data (cover, SFR, SAR, ST introduction sections, etc.) must ultimately persist and return HTML fragments. The `/final-preview` step concatenates those fragments, so avoid returning plain text or other formats.
+2. **Shared WYSIWYG contract** – rich-text capable endpoints must accept and return the shared JSON structure produced by the TipTap-based editor (table sizing, text formatting, and orientation flags are embedded in the HTML and must not be stripped server-side).
+3. **JSON persistence for save/load** – whenever you introduce new storage endpoints, make sure the request/response bodies are JSON serialisations that match the session service expectations from the web client.
+4. **Section status reporting** – the `/final-preview` `Section Status` API depends on each module exposing whether required form fields are filled. Extend response payloads with the appropriate `Completed`/`Missing` flags whenever new modules are added so the status screen stays accurate.
+5. **Workflow completeness** – endpoints should not silently accept partially filled data. Validate required payload fields and raise `HTTPException(status_code=422, detail=...)` when the workflow rules would otherwise be violated.
+
 ## Module Map and Function Responsibilities
 ### `app/database.py`
 - Configures the SQLAlchemy `engine` depending on `DATABASE_URL` (SQLite special casing) and exposes `SessionLocal` and declarative `Base`.
@@ -72,6 +80,7 @@
 - FastAPI endpoints and the CLI importer both instantiate `XmlParserService` to keep XML parsing logic centralised.
 - Request handlers accept/return Pydantic models from `schemas.py`, which directly map to SQLAlchemy ORM entities defined in `models.py`.
 - Upload/preview helpers write files into directories derived from environment variables; cleanup endpoints must delete from the same locations to avoid orphaned files.
+- Data consumed by the Vue client must preserve the HTML/JSON contracts outlined above so that saving/loading, previews, and `/final-preview` status calculations remain consistent.
 
 ## Testing Expectations
 1. Start dependencies (e.g. PostgreSQL) as directed in the repository root instructions, or fall back to SQLite for isolated checks.
@@ -79,5 +88,6 @@
 3. Run the Vue client and execute your change-specific user flows.
 4. Validate XML import paths by uploading `oldparser/cc.xml` through the web UI so that new endpoints see realistic data.
 5. Use Playwright-driven browser flows (see the `web/AGENTS.md` instructions) to exercise API mutations that rely on stateful interactions.
+6. Capture evidence (logs, screenshots) demonstrating that HTML fragments persist correctly and that `/final-preview` reflects updated section statuses when applicable.
 
 Lastly, please test all your implementation, using your own tool like playwright, and take screenshot as your aid in debugging and for evidence.
