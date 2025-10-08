@@ -93,6 +93,9 @@ import {
   type ConformanceClaimsSessionData,
   type SessionData,
   type SarSessionData,
+  type AssumptionsSessionData,
+  type ThreatsSessionData,
+  type OspSessionData,
 } from '../services/sessionService'
 import {
   buildSarPreviewHtml,
@@ -107,6 +110,9 @@ type SectionKey =
   | 'toe-reference' 
   | 'toe-overview' 
   | 'toe-description'
+  | 'assumptions'
+  | 'threats'
+  | 'osp'
   | 'conformance-claims'
   | 'sfr'
   | 'sar'
@@ -129,6 +135,9 @@ const sectionStatus = ref<SectionStatus[]>([
   { key: 'toe-reference', label: 'TOE Reference', complete: false },
   { key: 'toe-overview', label: 'TOE Overview', complete: false },
   { key: 'toe-description', label: 'TOE Description', complete: false },
+  { key: 'assumptions', label: 'Assumptions', complete: false },
+  { key: 'threats', label: 'Threats', complete: false },
+  { key: 'osp', label: 'Organizational Security Policies (Optional)', complete: false },
   { key: 'conformance-claims', label: 'Conformance Claims', complete: false },
   { key: 'sfr', label: 'Security Functional Requirements', complete: false },
   { key: 'sar', label: 'Security Assurance Requirements', complete: false },
@@ -206,6 +215,21 @@ function hasSARContent(data: SarSessionData | null): boolean {
   return Boolean(data.sarList && data.sarList.length > 0)
 }
 
+function hasAssumptionsContent(data: AssumptionsSessionData | null): boolean {
+  if (!data) return false
+  return Boolean(data.assumptionsList && data.assumptionsList.length > 0)
+}
+
+function hasThreatsContent(data: ThreatsSessionData | null): boolean {
+  if (!data) return false
+  return Boolean(data.threatsList && data.threatsList.length > 0)
+}
+
+function hasOspContent(data: OspSessionData | null): boolean {
+  if (!data) return false
+  return Boolean(data.ospList && data.ospList.length > 0)
+}
+
 function updateSectionStatus() {
   const coverData = sessionService.loadCoverData()
   const stReferenceData = sessionService.loadSTReferenceData()
@@ -215,6 +239,9 @@ function updateSectionStatus() {
   const conformanceClaimsData = sessionService.loadConformanceClaimsData()
   const sfrData = sessionService.loadSfrData()
   const sarData = sessionService.loadSarData()
+  const assumptionsData = sessionService.loadAssumptionsData()
+  const threatsData = sessionService.loadThreatsData()
+  const ospData = sessionService.loadOspData()
 
   sectionStatus.value = [
     { key: 'cover', label: 'Cover', complete: hasCoverContent(coverData) },
@@ -222,6 +249,9 @@ function updateSectionStatus() {
     { key: 'toe-reference', label: 'TOE Reference', complete: hasTOEReferenceContent(toeReferenceData) },
     { key: 'toe-overview', label: 'TOE Overview', complete: hasTOEOverviewContent(toeOverviewData) },
     { key: 'toe-description', label: 'TOE Description', complete: hasTOEDescriptionContent(toeDescriptionData) },
+    { key: 'assumptions', label: 'Assumptions', complete: hasAssumptionsContent(assumptionsData) },
+    { key: 'threats', label: 'Threats', complete: hasThreatsContent(threatsData) },
+    { key: 'osp', label: 'Organizational Security Policies (Optional)', complete: hasOspContent(ospData) },
     { key: 'conformance-claims', label: 'Conformance Claims', complete: hasConformanceClaimsContent(conformanceClaimsData) },
     { key: 'sfr', label: 'Security Functional Requirements', complete: hasSFRContent(sfrData) },
     { key: 'sar', label: 'Security Assurance Requirements', complete: hasSARContent(sarData) },
@@ -374,6 +404,87 @@ function escapeHtml(text: string): string {
   return div.innerHTML
 }
 
+function buildAssumptionsHTML(): string {
+  const data = sessionService.loadAssumptionsData()
+  if (!data || data.assumptionsList.length === 0) {
+    return ''
+  }
+
+  let html = '<h4>3.1 Assumptions</h4>'
+  html += '<p>The specific conditions listed in the following subsections are assumed to exist in the TOE\'s environment. These assumptions include both practical realities in the development of the TOE security requirements and the essential environmental conditions on the use of the TOE.</p>'
+  
+  html += '<table style="width: 100%; border-collapse: collapse; border: 1px solid black;">'
+  html += '<thead><tr>'
+  html += '<th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2;">Assumptions</th>'
+  html += '<th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2;">Description</th>'
+  html += '</tr></thead><tbody>'
+  
+  for (const item of data.assumptionsList) {
+    html += '<tr>'
+    html += `<td style="border: 1px solid black; padding: 8px;">${escapeHtml(item.assumption)}</td>`
+    html += `<td style="border: 1px solid black; padding: 8px;">${item.description}</td>`
+    html += '</tr>'
+  }
+  
+  html += '</tbody></table>'
+  return html
+}
+
+function buildThreatsHTML(): string {
+  const data = sessionService.loadThreatsData()
+  if (!data || data.threatsList.length === 0) {
+    return ''
+  }
+
+  let html = '<h4>3.2 Threats</h4>'
+  html += '<p>The following table defines the security threats for the TOE</p>'
+  
+  html += '<table style="width: 100%; border-collapse: collapse; border: 1px solid black;">'
+  html += '<thead><tr>'
+  html += '<th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2;">Threats</th>'
+  html += '<th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2;">Description</th>'
+  html += '</tr></thead><tbody>'
+  
+  for (const item of data.threatsList) {
+    html += '<tr>'
+    html += `<td style="border: 1px solid black; padding: 8px;">${escapeHtml(item.threat)}</td>`
+    html += `<td style="border: 1px solid black; padding: 8px;">${item.description}</td>`
+    html += '</tr>'
+  }
+  
+  html += '</tbody></table>'
+  return html
+}
+
+function buildOspHTML(): string {
+  const data = sessionService.loadOspData()
+  
+  let html = '<h4>3.3 Organisational Security Policies</h4>'
+  
+  if (!data || data.ospList.length === 0) {
+    html += '<p>There are no Organizational Security Policies identified for this TOE.</p>'
+    return html
+  }
+  
+  html += '<p>The following table defines the organizational security policies which are a set of rules, practices, and procedures imposed by an organization to address its security needs.</p>'
+  
+  html += '<table style="width: 100%; border-collapse: collapse; border: 1px solid black;">'
+  html += '<thead><tr>'
+  html += '<th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2;">OSP</th>'
+  html += '<th style="border: 1px solid black; padding: 8px; background-color: #f2f2f2;">Description</th>'
+  html += '</tr></thead><tbody>'
+  
+  for (const item of data.ospList) {
+    html += '<tr>'
+    html += `<td style="border: 1px solid black; padding: 8px;">${escapeHtml(item.osp)}</td>`
+    html += `<td style="border: 1px solid black; padding: 8px;">${item.description}</td>`
+    html += '</tr>'
+  }
+  
+  html += '</tbody></table>'
+  return html
+}
+
 async function generatePreview() {
   updateSectionStatus()
 
@@ -396,6 +507,9 @@ async function generatePreview() {
     const toeReferenceHTML = buildTOEReferenceHTML()
     const toeOverviewHTML = buildTOEOverviewHTML()
     const toeDescriptionHTML = buildTOEDescriptionHTML()
+    const assumptionsHTML = buildAssumptionsHTML()
+    const threatsHTML = buildThreatsHTML()
+    const ospHTML = buildOspHTML()
     const conformanceClaimsHTML = buildConformanceClaimsHTML()
     const sfrData = sessionService.loadSfrData()
     const sarData = sessionService.loadSarData()
@@ -405,7 +519,7 @@ async function generatePreview() {
 
     const sfrPreviewHtml = sfrEntries.length
       ? buildSfrPreviewHtml(sfrEntries, {
-          rootSectionNumber: 3,
+          rootSectionNumber: 5,
           includeRootHeading: false,
           includeFunctionalHeading: false,
         })
@@ -413,7 +527,7 @@ async function generatePreview() {
 
     const sarPreviewHtml = sarEntries.length
       ? buildSarPreviewHtml(sarEntries, {
-          rootSectionNumber: 4,
+          rootSectionNumber: 5,
           selectedEal: sarData?.selectedEal || 'EAL 1',
           includeRootHeading: false,
           includeAssuranceHeading: false,
@@ -437,6 +551,9 @@ async function generatePreview() {
       toe_reference_html: toeReferenceHTML || null,
       toe_overview_html: toeOverviewHTML || null,
       toe_description_html: toeDescriptionHTML || null,
+      assumptions_html: assumptionsHTML || null,
+      threats_html: threatsHTML || null,
+      osp_html: ospHTML || null,
       conformance_claims_html: conformanceClaimsHTML || null,
       sfr_list: sfrData?.sfrList || [],
       sar_list: sarData?.sarList || [],
@@ -493,6 +610,9 @@ function saveProjectAsJSON() {
     toeReferenceData: sessionService.loadTOEReferenceData(),
     toeOverviewData: sessionService.loadTOEOverviewData(),
     toeDescriptionData: sessionService.loadTOEDescriptionData(),
+    assumptionsData: sessionService.loadAssumptionsData(),
+    threatsData: sessionService.loadThreatsData(),
+    ospData: sessionService.loadOspData(),
     conformanceClaimsData: sessionService.loadConformanceClaimsData(),
     sfrData: sessionService.loadSfrData(),
     sarData: sessionService.loadSarData(),
