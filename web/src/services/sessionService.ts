@@ -4,6 +4,7 @@ export interface SessionData {
   sfrList: any[]
   selectedSfrId: number | null
   nextSfrId: number
+  previewHtml?: string
   userToken: string
   timestamp: number
 }
@@ -13,6 +14,7 @@ export interface SarSessionData {
   selectedSarId: number | null
   nextSarId: number
   selectedEal?: string
+  previewHtml?: string
   userToken: string
   timestamp: number
 }
@@ -27,6 +29,7 @@ export interface CoverSessionData {
     date: string
   }
   uploadedImagePath: string | null
+  imageBase64: string | null
   userToken: string
   timestamp: number
 }
@@ -120,11 +123,17 @@ class SessionService {
   /**
    * Save SFR data to session storage
    */
-  saveSfrData(sfrList: any[], selectedSfrId: number | null, nextSfrId: number): void {
+  saveSfrData(
+    sfrList: any[],
+    selectedSfrId: number | null,
+    nextSfrId: number,
+    previewHtml: string = ''
+  ): void {
     const sessionData: SessionData = {
       sfrList,
       selectedSfrId,
       nextSfrId,
+      previewHtml,
       userToken: this.userToken,
       timestamp: Date.now()
     }
@@ -150,6 +159,9 @@ class SessionService {
       }
 
       const sessionData: SessionData = JSON.parse(data)
+      if (typeof sessionData.previewHtml !== 'string') {
+        sessionData.previewHtml = ''
+      }
 
       // Validate that the token matches
       if (sessionData.userToken !== this.userToken) {
@@ -194,12 +206,19 @@ class SessionService {
   /**
    * Save SAR data to session storage
    */
-  saveSarData(sarList: any[], selectedSarId: number | null, nextSarId: number, selectedEal: string): void {
+  saveSarData(
+    sarList: any[],
+    selectedSarId: number | null,
+    nextSarId: number,
+    selectedEal: string,
+    previewHtml: string = ''
+  ): void {
     const sessionData: SarSessionData = {
       sarList,
       selectedSarId,
       nextSarId,
       selectedEal,
+      previewHtml,
       userToken: this.userToken,
       timestamp: Date.now()
     }
@@ -225,6 +244,9 @@ class SessionService {
       }
 
       const sessionData: SarSessionData = JSON.parse(data)
+      if (typeof sessionData.previewHtml !== 'string') {
+        sessionData.previewHtml = ''
+      }
 
       if (sessionData.userToken !== this.userToken) {
         console.warn('Session token mismatch, ignoring stored SAR data')
@@ -309,10 +331,11 @@ class SessionService {
   /**
    * Save Cover data to session storage
    */
-  saveCoverData(form: any, uploadedImagePath: string | null): void {
+  saveCoverData(form: any, uploadedImagePath: string | null, imageBase64: string | null): void {
     const sessionData: CoverSessionData = {
       form,
       uploadedImagePath,
+      imageBase64,
       userToken: this.userToken,
       timestamp: Date.now()
     }
@@ -338,6 +361,10 @@ class SessionService {
       }
 
       const sessionData: CoverSessionData = JSON.parse(data)
+
+      if (typeof sessionData.imageBase64 !== 'string') {
+        sessionData.imageBase64 = sessionData.imageBase64 ? String(sessionData.imageBase64) : null
+      }
 
       if (sessionData.userToken !== this.userToken) {
         console.warn('Session token mismatch, ignoring stored Cover data')

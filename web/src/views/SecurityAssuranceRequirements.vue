@@ -1097,7 +1097,13 @@ const saveSessionData = () => {
   if (isRestoringSession) {
     return
   }
-  sessionService.saveSarData(sarList.value, selectedSarId.value, nextSarId.value, selectedEal.value)
+  sessionService.saveSarData(
+    sarList.value,
+    selectedSarId.value,
+    nextSarId.value,
+    selectedEal.value,
+    selectedSarPreview.value
+  )
 }
 
 const deriveClassCodeForEntry = (entry: Partial<SarEntry> & { source?: SarSource }) => {

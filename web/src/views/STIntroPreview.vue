@@ -118,6 +118,7 @@ function hasCoverContent(data: CoverSessionData | null): boolean {
   const form = data.form || {}
   return Boolean(
     data.uploadedImagePath ||
+    data.imageBase64 ||
     form.title ||
     form.version ||
     form.revision ||
@@ -323,6 +324,7 @@ async function generatePreview() {
             manufacturer: coverData.form.manufacturer,
             date: coverData.form.date,
             image_path: coverData.uploadedImagePath,
+            image_base64: coverData.imageBase64,
           }
         : null,
       st_reference_html: stReferenceHTML || null,

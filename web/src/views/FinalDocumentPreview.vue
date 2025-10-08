@@ -22,14 +22,15 @@
         >
           {{ previewLoading ? 'Generating…' : 'Generate Preview' }}
         </button>
-        <a
+        <button
           v-if="generatedDocxPath && !previewLoading && !previewError"
-          :href="downloadUrl"
-          download="Security_Target_Document.docx"
+          type="button"
           class="btn primary"
+          :disabled="!downloadUrl"
+          @click="downloadDocx"
         >
           Download DOCX
-        </a>
+        </button>
       </div>
     </div>
 
@@ -135,8 +136,13 @@ const missingSections = computed(() =>
 const hasData = computed(() => sectionStatus.value.some(section => section.complete))
 
 const downloadUrl = computed(() => {
-  if (!generatedDocxPath.value) return ''
-  return api.getUri({ url: generatedDocxPath.value })
+  if (!generatedDocxPath.value || !userToken.value) return ''
+  const segments = generatedDocxPath.value.split('/')
+  const filename = segments[segments.length - 1]
+  if (!filename) return ''
+  return api.getUri({
+    url: `/final-preview/download/${encodeURIComponent(userToken.value)}/${encodeURIComponent(filename)}`
+  })
 })
 
 function hasCoverContent(data: CoverSessionData | null): boolean {
@@ -144,6 +150,7 @@ function hasCoverContent(data: CoverSessionData | null): boolean {
   const form = data.form || {}
   return Boolean(
     data.uploadedImagePath ||
+    data.imageBase64 ||
     form.title ||
     form.version ||
     form.revision ||
@@ -399,6 +406,7 @@ async function generatePreview() {
             manufacturer: coverData.form.manufacturer,
             date: coverData.form.date,
             image_path: coverData.uploadedImagePath,
+            image_base64: coverData.imageBase64,
           }
         : null,
       st_reference_html: stReferenceHTML || null,
@@ -486,6 +494,35 @@ const cleanupDocx = (keepalive = false) => {
   fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
   generatedDocxPath.value = null
   hasGeneratedDocx.value = false
+}
+
+const downloadDocx = async () => {
+  const url = downloadUrl.value
+  if (!url) {
+    return
+  }
+
+  const opened = window.open(url, '_blank', 'noopener')
+  if (!opened) {
+    try {
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error('Failed to download document')
+      }
+      const blob = await response.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = 'Security_Target_Document.docx'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(blobUrl)
+    } catch (error) {
+      console.error('Download failed', error)
+      alert('Unable to start the download. Please allow pop-ups for this site and try again.')
+    }
+  }
 }
 
 const handleBeforeUnload = () => cleanupDocx(true)

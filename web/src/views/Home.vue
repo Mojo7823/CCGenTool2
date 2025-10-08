@@ -87,7 +87,11 @@ function loadProject(event: Event) {
 
       // Load all data back into session storage
       if (projectData.coverData) {
-        sessionService.saveCoverData(projectData.coverData.form, projectData.coverData.uploadedImagePath)
+        sessionService.saveCoverData(
+          projectData.coverData.form,
+          projectData.coverData.uploadedImagePath,
+          projectData.coverData.imageBase64 || null
+        )
       }
       if (projectData.stReferenceData) {
         sessionService.saveSTReferenceData({
@@ -132,7 +136,8 @@ function loadProject(event: Event) {
         sessionService.saveSfrData(
           projectData.sfrData.sfrList,
           projectData.sfrData.selectedSfrId,
-          projectData.sfrData.nextSfrId
+          projectData.sfrData.nextSfrId,
+          projectData.sfrData.previewHtml || ''
         )
       }
       if (projectData.sarData) {
@@ -140,7 +145,8 @@ function loadProject(event: Event) {
           projectData.sarData.sarList,
           projectData.sarData.selectedSarId,
           projectData.sarData.nextSarId,
-          projectData.sarData.selectedEal
+          projectData.sarData.selectedEal,
+          projectData.sarData.previewHtml || ''
         )
       }
 

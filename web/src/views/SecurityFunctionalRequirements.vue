@@ -979,7 +979,12 @@ const closePreviewModal = () => {
 }
 
 const saveSessionData = () => {
-  sessionService.saveSfrData(sfrList.value, selectedSfrId.value, nextSfrId.value)
+  sessionService.saveSfrData(
+    sfrList.value,
+    selectedSfrId.value,
+    nextSfrId.value,
+    selectedSfrPreview.value
+  )
 }
 
 const deriveClassCodeForEntry = (entry: Partial<SfrEntry> & { source?: SfrSource }) => {
