@@ -5,14 +5,17 @@
         <h1>Cover Image</h1>
         <span class="menubar-subtitle">Insert Cover Image Here</span>
       </div>
-      <button
-        class="btn primary"
-        type="button"
-        @click="openPreview"
-        :disabled="!hasPreview || previewLoading"
-      >
-        Preview Cover
-      </button>
+      <div class="cover-actions">
+        <span class="save-status" :class="statusClass">{{ statusMessage }}</span>
+        <button
+          class="btn primary"
+          type="button"
+          @click="openPreview"
+          :disabled="!hasPreview || previewLoading"
+        >
+          Preview Cover
+        </button>
+      </div>
     </div>
 
     <div class="card cover-body">
@@ -108,53 +111,74 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
+import { useStIntroductionStore } from '../stores/stIntroduction'
+import { getOrCreateUserId } from '../utils/user'
+import { buildCoverHtml } from '../utils/stIntroductionHtml'
+import { saveSectionHtml, cleanupStIntroductionSession } from '../services/stIntroductionService'
+import { debounce } from '../utils/debounce'
+
+const stStore = useStIntroductionStore()
+const form = stStore.coverForm
+const { coverImagePath } = storeToRefs(stStore)
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragActive = ref(false)
 const uploading = ref(false)
 const uploadError = ref('')
-const uploadedImagePath = ref<string | null>(null)
 const showPreview = ref(false)
 const previewLoading = ref(false)
 const previewError = ref('')
-const hasUploaded = ref(false)
 const generatedDocxPath = ref<string | null>(null)
 const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 
-const form = reactive({
-  title: '',
-  version: '',
-  revision: '',
-  description: '',
-  manufacturer: '',
-  date: ''
-})
+const userId = ref(getOrCreateUserId())
 
-const storageKey = 'ccgen-user-id'
-const userId = ref('')
-
-const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !!form.description)
+const hasPreview = computed(() => !!coverImagePath.value || !!form.title || !!form.description)
 const imageUrl = computed(() => {
-  if (!uploadedImagePath.value) return ''
-  return api.getUri({ url: uploadedImagePath.value })
+  if (!coverImagePath.value) return ''
+  return api.getUri({ url: coverImagePath.value })
 })
 
-function ensureUserId() {
-  if (typeof window === 'undefined') return
-  const existing = window.localStorage.getItem(storageKey)
-  if (existing) {
-    userId.value = existing
-    return
+const saveStatus = ref<'idle' | 'saving' | 'saved' | 'error'>('idle')
+const statusMessage = computed(() => {
+  switch (saveStatus.value) {
+    case 'saving':
+      return 'Saving…'
+    case 'saved':
+      return 'Saved'
+    case 'error':
+      return 'Save failed'
+    default:
+      return ''
   }
-  const generated = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2)
-  userId.value = generated
-  window.localStorage.setItem(storageKey, generated)
-}
+})
+const statusClass = computed(() => `save-${saveStatus.value}`)
+
+const persistCoverHtml = debounce(async () => {
+  if (!userId.value) return
+  saveStatus.value = 'saving'
+  try {
+    const html = buildCoverHtml(form, coverImagePath.value)
+    await saveSectionHtml(userId.value, 'cover', html)
+    saveStatus.value = 'saved'
+  } catch (error) {
+    saveStatus.value = 'error'
+  }
+})
+
+watch(form, () => {
+  persistCoverHtml()
+}, { deep: true })
+
+watch(coverImagePath, () => {
+  persistCoverHtml()
+})
+
+persistCoverHtml()
 
 function triggerFileDialog() {
   fileInput.value?.click()
@@ -184,8 +208,7 @@ async function uploadFile(file: File) {
       params: { user_id: userId.value },
       headers: { 'Content-Type': 'multipart/form-data' },
     })
-    uploadedImagePath.value = response.data.path
-    hasUploaded.value = true
+    coverImagePath.value = response.data.path
   } catch (error: any) {
     console.error('Upload failed', error)
     resetUploadState(error?.response?.data?.detail || error?.message || 'Failed to upload image.')
@@ -211,10 +234,6 @@ async function openPreview() {
   if (!hasPreview.value || previewLoading.value) return
 
   if (!userId.value) {
-    ensureUserId()
-  }
-
-  if (!userId.value) {
     previewError.value = 'Unable to determine user session identifier.'
     showPreview.value = true
     return
@@ -236,7 +255,7 @@ async function openPreview() {
       description: form.description,
       manufacturer: form.manufacturer,
       date: form.date,
-      image_path: uploadedImagePath.value,
+      image_path: coverImagePath.value,
     }
 
     const response = await api.post('/cover/preview', payload)
@@ -296,14 +315,16 @@ function removeEventListeners() {
 function cleanupUploads(keepalive = false) {
   if (!userId.value) return
 
-  if (hasUploaded.value) {
+  if (coverImagePath.value) {
     const url = api.getUri({ url: `/cover/upload/${userId.value}` })
     fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
-    hasUploaded.value = false
-    uploadedImagePath.value = null
+    if (!keepalive) {
+      coverImagePath.value = null
+    }
   }
 
   cleanupDocx(keepalive)
+  cleanupStIntroductionSession(userId.value, keepalive)
 }
 
 function cleanupDocx(keepalive = false) {
@@ -322,7 +343,7 @@ function handlePageHide() {
 }
 
 onMounted(() => {
-  ensureUserId()
+  userId.value = getOrCreateUserId()
   if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', handleBeforeUnload)
     window.addEventListener('pagehide', handlePageHide)
@@ -330,7 +351,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  cleanupUploads()
   removeEventListeners()
 })
 </script>
@@ -347,6 +367,35 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
+}
+
+.cover-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.save-status {
+  font-size: 0.95rem;
+  font-weight: 500;
+  min-width: 80px;
+  text-align: right;
+}
+
+.save-idle {
+  color: transparent;
+}
+
+.save-saving {
+  color: var(--muted);
+}
+
+.save-saved {
+  color: #34d399;
+}
+
+.save-error {
+  color: #f87171;
 }
 
 .cover-menubar-left h1 {

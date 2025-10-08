@@ -51,8 +51,20 @@ SFR_DOCX_ROOT = Path(os.getenv("SFR_DOCX_DIR", Path(tempfile.gettempdir()) / "cc
 SFR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 SAR_DOCX_ROOT = Path(os.getenv("SAR_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_sar_docx"))
 SAR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+ST_INTRO_HTML_ROOT = Path(os.getenv("ST_INTRO_HTML_DIR", Path(tempfile.gettempdir()) / "ccgentool2_st_intro_html"))
+ST_INTRO_HTML_ROOT.mkdir(parents=True, exist_ok=True)
+ST_INTRO_DOCX_ROOT = Path(os.getenv("ST_INTRO_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_st_intro_docx"))
+ST_INTRO_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+ST_INTRO_SECTIONS = {
+    "cover": "cover.html",
+    "st-reference": "st-reference.html",
+    "toe-reference": "toe-reference.html",
+    "toe-overview": "toe-overview.html",
+    "toe-description": "toe-description.html",
+}
 
 
 def get_user_upload_dir(user_id: str, *, create: bool = False) -> Path:
@@ -79,6 +91,54 @@ def get_user_docx_dir(user_id: str, *, create: bool = False) -> Path:
     return _get_preview_docx_dir(COVER_DOCX_ROOT, user_id, create=create)
 
 
+def _get_st_intro_html_dir(user_id: str, *, create: bool = False) -> Path:
+    return _get_preview_docx_dir(ST_INTRO_HTML_ROOT, user_id, create=create)
+
+
+def _get_st_intro_docx_dir(user_id: str, *, create: bool = False) -> Path:
+    return _get_preview_docx_dir(ST_INTRO_DOCX_ROOT, user_id, create=create)
+
+
+def _resolve_st_intro_section(section: str) -> str:
+    filename = ST_INTRO_SECTIONS.get(section)
+    if not filename:
+        raise HTTPException(status_code=404, detail="Unknown ST Introduction section")
+    return filename
+
+
+def _get_section_html_path(section: str, user_id: str, *, create: bool = False) -> Path:
+    filename = _resolve_st_intro_section(section)
+    directory = _get_st_intro_html_dir(user_id, create=create)
+    if create:
+        directory.mkdir(parents=True, exist_ok=True)
+    return directory / filename
+
+
+def _load_section_html(section: str, user_id: str) -> str:
+    path = _get_section_html_path(section, user_id, create=False)
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return ""
+
+
+ST_INTRO_SECTION_ORDER = [
+    "cover",
+    "st-reference",
+    "toe-reference",
+    "toe-overview",
+    "toe-description",
+]
+
+
+def _combine_st_intro_html(user_id: str) -> str:
+    fragments = []
+    for section in ST_INTRO_SECTION_ORDER:
+        html = _load_section_html(section, user_id)
+        if html and html.strip():
+            fragments.append(html.strip())
+    return "\n\n".join(fragments)
+
+
 class CoverPreviewRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -97,6 +157,12 @@ class HtmlPreviewRequest(BaseModel):
 
     user_id: str = Field(..., alias="user_id")
     html_content: str = Field(..., alias="html_content")
+
+
+class StIntroductionPreviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
 
 
 def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Optional[Path]:
@@ -513,6 +579,7 @@ app.mount("/cover/uploads", StaticFiles(directory=str(COVER_UPLOAD_ROOT)), name=
 app.mount("/cover/docx", StaticFiles(directory=str(COVER_DOCX_ROOT)), name="cover-docx")
 app.mount("/security/sfr/docx", StaticFiles(directory=str(SFR_DOCX_ROOT)), name="sfr-docx")
 app.mount("/security/sar/docx", StaticFiles(directory=str(SAR_DOCX_ROOT)), name="sar-docx")
+app.mount("/st-introduction/docx", StaticFiles(directory=str(ST_INTRO_DOCX_ROOT)), name="st-introduction-docx")
 
 
 @app.get("/health")
@@ -959,6 +1026,38 @@ async def generate_cover_preview(payload: CoverPreviewRequest):
     return {"path": f"/cover/docx/{payload.user_id}/{output_path.name}"}
 
 
+@app.post("/st-introduction/sections/{section}")
+async def save_st_introduction_section(section: str, payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    path = _get_section_html_path(section, payload.user_id, create=True)
+    path.write_text(payload.html_content or "", encoding="utf-8")
+    return {"status": "saved"}
+
+
+@app.get("/st-introduction/sections/{section}")
+async def get_st_introduction_section(section: str, user_id: str = Query(..., alias="user_id")):
+    html_content = _load_section_html(section, user_id)
+    return {"html_content": html_content}
+
+
+@app.post("/st-introduction/preview")
+async def generate_st_introduction_preview(payload: StIntroductionPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    combined_html = _combine_st_intro_html(payload.user_id)
+    if not combined_html.strip():
+        raise HTTPException(status_code=400, detail="No ST Introduction content available for preview")
+
+    output_path = _build_html_preview_document(combined_html, payload.user_id, ST_INTRO_DOCX_ROOT)
+    return {
+        "path": f"/st-introduction/docx/{payload.user_id}/{output_path.name}",
+        "html_content": combined_html,
+    }
+
+
 @app.post("/security/sfr/preview")
 async def generate_sfr_preview(payload: HtmlPreviewRequest):
     if not payload.user_id:
@@ -995,6 +1094,25 @@ async def cleanup_cover_preview(user_id: str):
     """Delete generated cover preview documents for a user session."""
 
     docx_dir = get_user_docx_dir(user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.delete("/st-introduction/preview/{user_id}")
+async def cleanup_st_introduction_preview(user_id: str):
+    docx_dir = _get_st_intro_docx_dir(user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.delete("/st-introduction/session/{user_id}")
+async def cleanup_st_introduction_session(user_id: str):
+    html_dir = _get_st_intro_html_dir(user_id, create=False)
+    if html_dir.exists():
+        shutil.rmtree(html_dir)
+    docx_dir = _get_st_intro_docx_dir(user_id, create=False)
     if docx_dir.exists():
         shutil.rmtree(docx_dir)
     return {"status": "deleted"}

@@ -9,9 +9,18 @@ test.describe('CCGenTool navigation', () => {
     await expect(page.getByRole('link', { name: 'Create New Security Target' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Automatically Generate Security Target' })).toBeVisible()
 
-    await page.getByRole('link', { name: 'Create New Security Target' }).click()
+    await page.getByRole('link', { name: 'Cover' }).click()
     await expect(page.getByRole('heading', { name: 'Cover Image' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Preview Cover' })).toBeDisabled()
+
+    await page.getByRole('link', { name: 'ST Reference' }).click()
+    await expect(page.getByRole('heading', { name: 'Security Target (ST) Reference' })).toBeVisible()
+
+    await page.getByRole('link', { name: 'TOE Reference' }).click()
+    await expect(page.getByRole('heading', { name: 'Target of Evaluation (TOE) Reference' })).toBeVisible()
+
+    await page.getByRole('link', { name: 'ST Introduction Preview' }).click()
+    await expect(page.getByRole('heading', { name: 'ST Introduction Preview' })).toBeVisible()
 
     await page.getByRole('link', { name: 'Generator' }).first().click()
     await expect(page.getByRole('heading', { name: 'Security Target Generator' })).toBeVisible()

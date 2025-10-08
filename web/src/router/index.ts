@@ -5,10 +5,20 @@ import Generator from '../views/Generator.vue'
 import Settings from '../views/Settings.vue'
 import SecurityFunctionalRequirements from '../views/SecurityFunctionalRequirements.vue'
 import SecurityAssuranceRequirements from '../views/SecurityAssuranceRequirements.vue'
+import STReference from '../views/STReference.vue'
+import ToeReference from '../views/ToeReference.vue'
+import ToeOverview from '../views/ToeOverview.vue'
+import ToeDescription from '../views/ToeDescription.vue'
+import StIntroductionPreview from '../views/StIntroductionPreview.vue'
 
 const routes = [
   { path: '/', name: 'home', component: Home },
   { path: '/cover', name: 'cover', component: Cover },
+  { path: '/st-introduction/reference', name: 'st-reference', component: STReference },
+  { path: '/st-introduction/toe-reference', name: 'toe-reference', component: ToeReference },
+  { path: '/st-introduction/toe-overview', name: 'toe-overview', component: ToeOverview },
+  { path: '/st-introduction/toe-description', name: 'toe-description', component: ToeDescription },
+  { path: '/st-introduction/preview', name: 'st-introduction-preview', component: StIntroductionPreview },
   { path: '/generator', name: 'generator', component: Generator },
   { path: '/settings', name: 'settings', component: Settings },
   { path: '/security/sfr', name: 'security-sfr', component: SecurityFunctionalRequirements },
