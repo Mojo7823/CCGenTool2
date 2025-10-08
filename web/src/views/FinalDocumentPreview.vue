@@ -22,14 +22,14 @@
         >
           {{ previewLoading ? 'Generating…' : 'Generate Preview' }}
         </button>
-        <a
-          v-if="generatedDocxPath && !previewLoading && !previewError"
-          :href="downloadUrl"
-          download="Security_Target_Document.docx"
+        <button
           class="btn primary"
+          type="button"
+          @click="handleDownload"
+          :disabled="!canDownload"
         >
           Download DOCX
-        </a>
+        </button>
       </div>
     </div>
 
@@ -94,6 +94,12 @@ import {
   type SessionData,
   type SarSessionData,
 } from '../services/sessionService'
+import {
+  buildSarPreviewHtml,
+  buildSfrPreviewHtml,
+  type SarPreviewEntry,
+  type SfrPreviewEntry,
+} from '../utils/securityPreview'
 
 type SectionKey = 
   | 'cover' 
@@ -135,15 +141,21 @@ const missingSections = computed(() =>
 const hasData = computed(() => sectionStatus.value.some(section => section.complete))
 
 const downloadUrl = computed(() => {
-  if (!generatedDocxPath.value) return ''
-  return api.getUri({ url: generatedDocxPath.value })
+  if (!generatedDocxPath.value || !userToken.value) return ''
+  const segments = generatedDocxPath.value.split('/')
+  const filename = segments[segments.length - 1]
+  if (!filename) return ''
+  return api.getUri({ url: `/final-preview/download/${userToken.value}/${filename}` })
 })
+
+const canDownload = computed(() => !!downloadUrl.value)
 
 function hasCoverContent(data: CoverSessionData | null): boolean {
   if (!data) return false
   const form = data.form || {}
   return Boolean(
     data.uploadedImagePath ||
+    data.uploadedImageData ||
     form.title ||
     form.version ||
     form.revision ||
@@ -388,6 +400,26 @@ async function generatePreview() {
     const sfrData = sessionService.loadSfrData()
     const sarData = sessionService.loadSarData()
 
+    const sfrEntries = (sfrData?.sfrList || []) as unknown as SfrPreviewEntry[]
+    const sarEntries = (sarData?.sarList || []) as unknown as SarPreviewEntry[]
+
+    const sfrPreviewHtml = sfrEntries.length
+      ? buildSfrPreviewHtml(sfrEntries, {
+          rootSectionNumber: 3,
+          includeRootHeading: false,
+          includeFunctionalHeading: false,
+        })
+      : ''
+
+    const sarPreviewHtml = sarEntries.length
+      ? buildSarPreviewHtml(sarEntries, {
+          rootSectionNumber: 4,
+          selectedEal: sarData?.selectedEal || 'EAL 1',
+          includeRootHeading: false,
+          includeAssuranceHeading: false,
+        })
+      : ''
+
     const payload = {
       user_id: userToken.value,
       cover_data: coverData
@@ -409,6 +441,8 @@ async function generatePreview() {
       sfr_list: sfrData?.sfrList || [],
       sar_list: sarData?.sarList || [],
       selected_eal: sarData?.selectedEal || null,
+      sfr_preview_html: sfrPreviewHtml || null,
+      sar_preview_html: sarPreviewHtml || null,
     }
 
     const response = await api.post('/final-preview', payload)
@@ -486,6 +520,31 @@ const cleanupDocx = (keepalive = false) => {
   fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
   generatedDocxPath.value = null
   hasGeneratedDocx.value = false
+}
+
+function handleDownload() {
+  if (!canDownload.value || typeof window === 'undefined') {
+    return
+  }
+
+  const url = downloadUrl.value
+  if (!url) {
+    return
+  }
+
+  const opened = window.open(url, '_blank')
+  if (!opened) {
+    const link = document.createElement('a')
+    link.href = url
+    link.target = '_blank'
+    link.rel = 'noopener'
+    link.download = 'Security_Target_Document.docx'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  } else {
+    opened.opener = null
+  }
 }
 
 const handleBeforeUnload = () => cleanupDocx(true)

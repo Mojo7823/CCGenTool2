@@ -215,6 +215,12 @@ import { renderAsync } from 'docx-preview'
 import api from '../services/api'
 import { sessionService } from '../services/sessionService'
 import RichTextEditor from '../components/RichTextEditor.vue'
+import {
+  buildSarPreviewHtml,
+  normalizeComponentId,
+  uppercaseIdentifiersInHtml,
+  type SarPreviewEntry,
+} from '../utils/securityPreview'
 
 interface SarClass {
   name: string
@@ -261,68 +267,13 @@ const defaultEalLevel = ealOptions[0]
 const selectedEal = ref<string>(defaultEalLevel)
 let isRestoringSession = false
 
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-
-const normalizeComponentId = (value: string) => value.trim().toUpperCase()
-
 const uppercaseLeadingIdentifier = (value: string) =>
   value.replace(/^([a-z][a-z0-9_.-]*)/i, match => match.toUpperCase())
-
-const uppercaseIdentifiersInHtml = (html: string) => {
-  const transform = (text: string) =>
-    text.replace(/\b([a-z][a-z0-9_.-]*[_.][a-z0-9_.-]*)\b/gi, match => match.toUpperCase())
-
-  if (typeof window === 'undefined' || typeof document === 'undefined') {
-    return transform(html)
-  }
-
-  const container = document.createElement('div')
-  container.innerHTML = html
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
-
-  while (walker.nextNode()) {
-    const node = walker.currentNode as Text
-    if (node.nodeValue) {
-      node.nodeValue = transform(node.nodeValue)
-    }
-  }
-
-  return container.innerHTML
-}
 
 const formatAssuranceComponentLabel = (componentId: string, componentName?: string) => {
   const normalizedId = normalizeComponentId(componentId || '')
   const trimmedName = componentName?.trim()
   return trimmedName ? `${normalizedId} : ${trimmedName}` : normalizedId
-}
-
-const formatComponentHeading = (componentId: string, componentName?: string) => {
-  const normalizedId = normalizeComponentId(componentId || '')
-  const trimmedName = componentName?.trim()
-  return trimmedName ? `${normalizedId} – ${trimmedName}` : normalizedId
-}
-
-const formatClassHeading = (className: string, classCode: string) => {
-  const trimmed = className.trim()
-  if (!trimmed) {
-    return classCode
-  }
-
-  const colonIndex = trimmed.indexOf(':')
-  if (colonIndex !== -1) {
-    const descriptor = trimmed.slice(colonIndex + 1).trim()
-    if (descriptor) {
-      return `${descriptor} (${classCode})`
-    }
-  }
-
-  return `${trimmed} (${classCode})`
 }
 
 const formatAssuranceComponent = (sar: SarEntry) =>
@@ -461,136 +412,6 @@ const isDuplicateSar = (classCode: string, componentId: string, excludeId: numbe
     const differentEntry = excludeId === null || sar.id !== excludeId
     return sameClass && sameComponent && differentEntry
   })
-}
-
-// Predefined template for SAR preview
-const getSarTemplate = (ealLevel: string) => {
-  const escapedEal = escapeHtml(ealLevel)
-  return `
-<h4>5. SECURITY REQUIREMENTS</h4>
-<h4>5.2 SECURITY ASSURANCE REQUIREMENTS</h4>
-<p>The development and the evaluation of the TOE shall be done in accordance to the following security assurance requirements: <code>${escapedEal}</code> as specified in Part 5 of the Common Criteria.</p>
-<p>No operations are applied to the assurance components.</p>
-<p>The TOE shall meet the following security assurance requirements:</p>
-`
-}
-
-const buildSarTableHtml = (
-  classOrder: string[],
-  groups: Record<string, { className: string; sars: SarEntry[] }>
-) => {
-  let rowsHtml = ''
-
-  if (classOrder.length === 0) {
-    rowsHtml += `
-      <tr>
-        <td colspan="2" class="sar-preview-table__empty">No Security Assurance Requirements selected.</td>
-      </tr>
-    `
-  } else {
-    classOrder.forEach(classCode => {
-      const classData = groups[classCode]
-      if (!classData) {
-        return
-      }
-
-      const sarEntries = classData.sars ?? []
-
-      if (sarEntries.length === 0) {
-        rowsHtml += `
-          <tr>
-            <td class="sar-preview-table__class-cell">${escapeHtml(classData.className)}</td>
-            <td class="sar-preview-table__note">No assurance components recorded.</td>
-          </tr>
-        `
-        return
-      }
-
-      sarEntries.forEach((sar, index) => {
-        const componentLabel = escapeHtml(formatAssuranceComponentLabel(sar.componentId, sar.componentName))
-        const classCell =
-          index === 0
-            ? `<td class="sar-preview-table__class-cell" rowspan="${sarEntries.length}">${escapeHtml(classData.className)}</td>`
-            : ''
-
-        rowsHtml += `
-          <tr>
-            ${classCell}
-            <td class="sar-preview-table__component">${componentLabel}</td>
-          </tr>
-        `
-      })
-    })
-  }
-
-  return `
-    <div class="sar-preview-table-wrapper">
-      <table class="sar-preview-table">
-        <thead>
-          <tr>
-            <th scope="col">SAR Class</th>
-            <th scope="col">Assurance Components</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rowsHtml}
-        </tbody>
-      </table>
-    </div>
-    <p class="sar-preview-table-caption">Table 7 Security Assurance Components</p>
-  `
-}
-
-const buildSarSectionsHtml = (
-  classOrder: string[],
-  groups: Record<string, { className: string; sars: SarEntry[] }>
-) => {
-  if (classOrder.length === 0) {
-    return '<p class="sar-preview-empty">No Security Assurance Requirements have been defined.</p>'
-  }
-
-  let html = ''
-  let classIndex = 1
-
-  classOrder.forEach(classCode => {
-    const classData = groups[classCode]
-    if (!classData) {
-      return
-    }
-
-    const headingText = escapeHtml(formatClassHeading(classData.className, classCode))
-    html += `
-      <section class="sar-preview-class">
-        <h5 class="sar-preview-section-heading">5.3.${classIndex} ${headingText}</h5>
-    `
-
-    if (!classData.sars.length) {
-      html += '<p class="sar-preview-note">No assurance components documented for this class.</p>'
-      html += '</section>'
-      classIndex++
-      return
-    }
-
-    classData.sars.forEach(sar => {
-      const componentHeading = escapeHtml(formatComponentHeading(sar.componentId, sar.componentName))
-      const content =
-        sar.previewContent && sar.previewContent.trim().length > 0
-          ? sar.previewContent
-          : '<p class="sar-preview-note">No component details provided.</p>'
-
-      html += `
-        <div class="sar-preview-component">
-          <p class="sar-preview-component__title">${componentHeading}</p>
-          <div class="sar-preview-component__body">${content}</div>
-        </div>
-      `
-    })
-
-    html += '</section>'
-    classIndex++
-  })
-
-  return html
 }
 
 const resetAddModalState = () => {
@@ -1058,27 +879,9 @@ const closePreviewModal = () => {
 }
 
 const updatePreviewForAllSars = () => {
-  const template = getSarTemplate(selectedEal.value)
-
-  const groups: Record<string, { className: string; sars: SarEntry[] }> = {}
-  const classOrder: string[] = []
-
-  sarList.value.forEach(sar => {
-    const key = sar.classCode || 'UNKNOWN'
-    if (!groups[key]) {
-      groups[key] = {
-        className: sar.className || key,
-        sars: []
-      }
-      classOrder.push(key)
-    }
-    groups[key].sars.push(sar)
+  selectedSarPreview.value = buildSarPreviewHtml(sarList.value as unknown as SarPreviewEntry[], {
+    selectedEal: selectedEal.value,
   })
-
-  const tableHtml = buildSarTableHtml(classOrder, groups)
-  const sectionsHtml = buildSarSectionsHtml(classOrder, groups)
-
-  selectedSarPreview.value = uppercaseIdentifiersInHtml(template + tableHtml + sectionsHtml)
 }
 
 const removeSAR = () => {
