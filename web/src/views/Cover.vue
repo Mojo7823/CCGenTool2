@@ -134,7 +134,6 @@ const form = reactive({
   date: ''
 })
 
-const storageKey = 'ccgen-user-id'
 const userId = ref('')
 
 const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !!form.description)
@@ -144,17 +143,7 @@ const imageUrl = computed(() => {
 })
 
 function ensureUserId() {
-  if (typeof window === 'undefined') return
-  const existing = window.localStorage.getItem(storageKey)
-  if (existing) {
-    userId.value = existing
-    return
-  }
-  const generated = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2)
-  userId.value = generated
-  window.localStorage.setItem(storageKey, generated)
+  userId.value = sessionService.getUserToken()
 }
 
 function saveSessionData() {

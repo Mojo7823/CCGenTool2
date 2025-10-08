@@ -13,7 +13,7 @@ import STIntroPreview from '../views/STIntroPreview.vue'
 
 const routes = [
   { path: '/', name: 'home', component: Home },
-  { path: '/cover', name: 'cover', component: Cover },
+  { path: '/st-intro/cover', name: 'cover', component: Cover },
   { path: '/generator', name: 'generator', component: Generator },
   { path: '/settings', name: 'settings', component: Settings },
   { path: '/st-intro/reference', name: 'st-reference', component: STReference },

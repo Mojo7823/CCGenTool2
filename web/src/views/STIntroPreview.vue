@@ -15,28 +15,61 @@
       </button>
     </div>
 
-    <div v-if="!showPreview && !hasData" class="card info-message">
-      <p>Please fill in at least one section (Cover, ST Reference, TOE Reference, TOE Overview, or TOE Description) to generate a preview.</p>
-    </div>
-
-    <div v-if="showPreview" class="modal-overlay" @click.self="closePreview">
-      <div class="modal-card docx-modal">
-        <header class="modal-header">
-          <h2>ST Introduction Preview</h2>
-          <button class="modal-close" type="button" @click="closePreview">&times;</button>
+    <div class="card st-intro-preview-body">
+      <aside class="status-column">
+        <header class="status-header">
+          <h2>Section status</h2>
+          <p>Preview all the ST Introduction section</p>
         </header>
-        <section class="modal-body docx-modal-body">
-          <div class="docx-preview-shell">
-            <div v-if="previewLoading" class="modal-status overlay">Generating preview…</div>
-            <div v-else-if="previewError" class="modal-error">{{ previewError }}</div>
-            <div
-              ref="docxPreviewContainer"
-              class="docx-preview-container"
-              :class="{ hidden: previewLoading || !!previewError }"
-            ></div>
+
+        <div v-if="!hasData" class="status-alert info">
+          Please fill in at least one ST Introduction section to enable the preview.
+        </div>
+
+        <div v-else-if="missingSections.length" class="status-alert warning">
+          Some sections still have required information missing: {{ missingSections.join(', ') }}.
+        </div>
+
+        <ul class="status-list">
+          <li
+            v-for="status in sectionStatuses"
+            :key="status.name"
+            class="status-item"
+            :class="status.complete ? 'complete' : 'missing'"
+          >
+            <div class="status-row">
+              <span class="status-name">{{ status.name }}</span>
+              <span class="status-pill" :class="status.complete ? 'complete' : 'missing'">
+                {{ status.complete ? 'Completed' : 'Missing' }}
+              </span>
+            </div>
+            <ul v-if="!status.complete && status.missing.length" class="missing-list">
+              <li v-for="field in status.missing" :key="field">{{ field }}</li>
+            </ul>
+          </li>
+        </ul>
+      </aside>
+
+      <section class="preview-column">
+        <header class="preview-header">
+          <h2>ST Introduction Preview</h2>
+          <p>Preview all the ST Introduction section</p>
+        </header>
+
+        <div class="preview-window">
+          <div v-if="previewLoading" class="preview-overlay">Generating preview…</div>
+          <div v-else-if="previewError" class="preview-message error">{{ previewError }}</div>
+          <div v-else-if="!hasGeneratedDocx" class="preview-message muted">
+            Generate a preview to inspect your ST Introduction document.
           </div>
-        </section>
-        <footer class="modal-footer">
+          <div
+            v-show="hasGeneratedDocx && !previewLoading && !previewError"
+            ref="docxPreviewContainer"
+            class="docx-preview-container"
+          ></div>
+        </div>
+
+        <div class="preview-actions">
           <a
             v-if="generatedDocxPath && !previewLoading && !previewError"
             :href="downloadUrl"
@@ -45,20 +78,25 @@
           >
             Download DOCX
           </a>
-          <button class="btn" type="button" @click="closePreview">Close</button>
-        </footer>
-      </div>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
 import { sessionService } from '../services/sessionService'
+import type {
+  CoverSessionData,
+  STReferenceSessionData,
+  TOEReferenceSessionData,
+  TOEOverviewSessionData,
+  TOEDescriptionSessionData
+} from '../services/sessionService'
 
-const showPreview = ref(false)
 const previewLoading = ref(false)
 const previewError = ref('')
 const generatedDocxPath = ref<string | null>(null)
@@ -66,14 +104,23 @@ const hasGeneratedDocx = ref(false)
 const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 const userToken = ref('')
 
+interface SectionStatus {
+  name: string
+  complete: boolean
+  missing: string[]
+  filled: boolean
+}
+
+const sectionData = reactive({
+  cover: null as CoverSessionData | null,
+  stReference: null as STReferenceSessionData | null,
+  toeReference: null as TOEReferenceSessionData | null,
+  toeOverview: null as TOEOverviewSessionData | null,
+  toeDescription: null as TOEDescriptionSessionData | null,
+})
+
 const hasData = computed(() => {
-  const coverData = sessionService.loadCoverData()
-  const stRefData = sessionService.loadSTReferenceData()
-  const toeRefData = sessionService.loadTOEReferenceData()
-  const toeOverviewData = sessionService.loadTOEOverviewData()
-  const toeDescData = sessionService.loadTOEDescriptionData()
-  
-  return !!(coverData || stRefData || toeRefData || toeOverviewData || toeDescData)
+  return sectionStatuses.value.some(status => status.filled)
 })
 
 const downloadUrl = computed(() => {
@@ -81,8 +128,117 @@ const downloadUrl = computed(() => {
   return api.getUri({ url: generatedDocxPath.value })
 })
 
-function buildSTReferenceHTML(): string {
-  const data = sessionService.loadSTReferenceData()
+function hasText(value: string | null | undefined): boolean {
+  return Boolean(value && value.toString().trim().length > 0)
+}
+
+function hasRichText(value: string | null | undefined): boolean {
+  if (!value) return false
+  const stripped = value.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim()
+  return stripped.length > 0
+}
+
+const missingSections = computed(() =>
+  sectionStatuses.value.filter(status => !status.complete).map(status => status.name)
+)
+
+const sectionStatuses = computed<SectionStatus[]>(() => {
+  const statuses: SectionStatus[] = []
+
+  const cover = sectionData.cover
+  const coverChecks: Array<[string, boolean]> = [
+    ['Cover image', Boolean(cover?.uploadedImagePath)],
+    ['Title', hasText(cover?.form.title)],
+    ['Version', hasText(cover?.form.version)],
+    ['Revision', hasText(cover?.form.revision)],
+    ['Description', hasText(cover?.form.description)],
+    ['Manufacturer/Laboratory', hasText(cover?.form.manufacturer)],
+    ['Date', hasText(cover?.form.date)],
+  ]
+  const coverMissing = coverChecks.filter(([, ok]) => !ok).map(([label]) => label)
+  const coverFilled = coverChecks.some(([, ok]) => ok)
+  statuses.push({
+    name: 'Cover',
+    complete: coverMissing.length === 0 && coverFilled,
+    missing: coverMissing,
+    filled: coverFilled,
+  })
+
+  const stReference = sectionData.stReference
+  const stReferenceChecks: Array<[string, boolean]> = [
+    ['ST Title', hasText(stReference?.stTitle)],
+    ['ST Version', hasText(stReference?.stVersion)],
+    ['ST Date', hasText(stReference?.stDate)],
+    ['Author', hasText(stReference?.author)],
+  ]
+  const stReferenceMissing = stReferenceChecks.filter(([, ok]) => !ok).map(([label]) => label)
+  const stReferenceFilled = stReferenceChecks.some(([, ok]) => ok)
+  statuses.push({
+    name: 'ST Reference',
+    complete: stReferenceMissing.length === 0 && stReferenceFilled,
+    missing: stReferenceMissing,
+    filled: stReferenceFilled,
+  })
+
+  const toeReference = sectionData.toeReference
+  const toeReferenceChecks: Array<[string, boolean]> = [
+    ['TOE Name', hasText(toeReference?.toeName)],
+    ['TOE Version', hasText(toeReference?.toeVersion)],
+    ['TOE Identification', hasText(toeReference?.toeIdentification)],
+    ['TOE Type', hasText(toeReference?.toeType)],
+  ]
+  const toeReferenceMissing = toeReferenceChecks.filter(([, ok]) => !ok).map(([label]) => label)
+  const toeReferenceFilled = toeReferenceChecks.some(([, ok]) => ok)
+  statuses.push({
+    name: 'TOE Reference',
+    complete: toeReferenceMissing.length === 0 && toeReferenceFilled,
+    missing: toeReferenceMissing,
+    filled: toeReferenceFilled,
+  })
+
+  const toeOverview = sectionData.toeOverview
+  const overviewChecks: Array<[string, boolean]> = [
+    ['TOE Overview', hasRichText(toeOverview?.toeOverview)],
+    ['TOE Type', hasRichText(toeOverview?.toeType)],
+    ['TOE Usage', hasRichText(toeOverview?.toeUsage)],
+    ['TOE Major Security Features', hasRichText(toeOverview?.toeMajorSecurityFeatures)],
+    ['Non-TOE Hardware/Software/Firmware', hasRichText(toeOverview?.nonToeHardwareSoftwareFirmware)],
+  ]
+  const overviewMissing = overviewChecks.filter(([, ok]) => !ok).map(([label]) => label)
+  const overviewFilled = overviewChecks.some(([, ok]) => ok)
+  statuses.push({
+    name: 'TOE Overview',
+    complete: overviewMissing.length === 0 && overviewFilled,
+    missing: overviewMissing,
+    filled: overviewFilled,
+  })
+
+  const toeDescription = sectionData.toeDescription
+  const descriptionChecks: Array<[string, boolean]> = [
+    ['TOE Physical Scope', hasRichText(toeDescription?.toePhysicalScope)],
+    ['TOE Logical Scope', hasRichText(toeDescription?.toeLogicalScope)],
+  ]
+  const descriptionMissing = descriptionChecks.filter(([, ok]) => !ok).map(([label]) => label)
+  const descriptionFilled = descriptionChecks.some(([, ok]) => ok)
+  statuses.push({
+    name: 'TOE Description',
+    complete: descriptionMissing.length === 0 && descriptionFilled,
+    missing: descriptionMissing,
+    filled: descriptionFilled,
+  })
+
+  return statuses
+})
+
+function refreshSectionData() {
+  sectionData.cover = sessionService.loadCoverData()
+  sectionData.stReference = sessionService.loadSTReferenceData()
+  sectionData.toeReference = sessionService.loadTOEReferenceData()
+  sectionData.toeOverview = sessionService.loadTOEOverviewData()
+  sectionData.toeDescription = sessionService.loadTOEDescriptionData()
+}
+
+function buildSTReferenceHTML(data: STReferenceSessionData | null): string {
   if (!data || (!data.stTitle && !data.stVersion && !data.stDate && !data.author)) {
     return ''
   }
@@ -108,8 +264,7 @@ function buildSTReferenceHTML(): string {
   return html
 }
 
-function buildTOEReferenceHTML(): string {
-  const data = sessionService.loadTOEReferenceData()
+function buildTOEReferenceHTML(data: TOEReferenceSessionData | null): string {
   if (!data || (!data.toeName && !data.toeVersion && !data.toeIdentification && !data.toeType)) {
     return ''
   }
@@ -135,8 +290,7 @@ function buildTOEReferenceHTML(): string {
   return html
 }
 
-function buildTOEOverviewHTML(): string {
-  const data = sessionService.loadTOEOverviewData()
+function buildTOEOverviewHTML(data: TOEOverviewSessionData | null): string {
   if (!data || (!data.toeOverview && !data.toeType && !data.toeUsage && !data.toeMajorSecurityFeatures && !data.nonToeHardwareSoftwareFirmware)) {
     return ''
   }
@@ -170,8 +324,7 @@ function buildTOEOverviewHTML(): string {
   return html
 }
 
-function buildTOEDescriptionHTML(): string {
-  const data = sessionService.loadTOEDescriptionData()
+function buildTOEDescriptionHTML(data: TOEDescriptionSessionData | null): string {
   if (!data || (!data.toePhysicalScope && !data.toeLogicalScope)) {
     return ''
   }
@@ -201,35 +354,35 @@ async function generatePreview() {
   if (!hasData.value || previewLoading.value) return
 
   previewError.value = ''
-  showPreview.value = true
   previewLoading.value = true
 
-  await nextTick()
+  refreshSectionData()
   cleanupDocx()
 
   try {
-    // Gather all data
-    const coverData = sessionService.loadCoverData()
-    const stReferenceHTML = buildSTReferenceHTML()
-    const toeReferenceHTML = buildTOEReferenceHTML()
-    const toeOverviewHTML = buildTOEOverviewHTML()
-    const toeDescriptionHTML = buildTOEDescriptionHTML()
+    const coverData = sectionData.cover
+    const stReferenceHTML = buildSTReferenceHTML(sectionData.stReference)
+    const toeReferenceHTML = buildTOEReferenceHTML(sectionData.toeReference)
+    const toeOverviewHTML = buildTOEOverviewHTML(sectionData.toeOverview)
+    const toeDescriptionHTML = buildTOEDescriptionHTML(sectionData.toeDescription)
 
     const payload = {
       user_id: userToken.value,
-      cover_data: coverData ? {
-        title: coverData.form.title,
-        version: coverData.form.version,
-        revision: coverData.form.revision,
-        description: coverData.form.description,
-        manufacturer: coverData.form.manufacturer,
-        date: coverData.form.date,
-        image_path: coverData.uploadedImagePath
-      } : null,
+      cover_data: coverData
+        ? {
+            title: coverData.form.title,
+            version: coverData.form.version,
+            revision: coverData.form.revision,
+            description: coverData.form.description,
+            manufacturer: coverData.form.manufacturer,
+            date: coverData.form.date,
+            image_path: coverData.uploadedImagePath,
+          }
+        : null,
       st_reference_html: stReferenceHTML || null,
       toe_reference_html: toeReferenceHTML || null,
       toe_overview_html: toeOverviewHTML || null,
-      toe_description_html: toeDescriptionHTML || null
+      toe_description_html: toeDescriptionHTML || null,
     }
 
     const response = await api.post('/st-intro/preview', payload)
@@ -249,14 +402,6 @@ async function generatePreview() {
   } finally {
     previewLoading.value = false
   }
-}
-
-function closePreview() {
-  showPreview.value = false
-  if (!previewLoading.value) {
-    previewError.value = ''
-  }
-  cleanupDocx()
 }
 
 async function renderDocxPreview(path: string) {
@@ -292,6 +437,8 @@ const cleanupDocx = (keepalive = false) => {
 
 const handleBeforeUnload = () => cleanupDocx(true)
 const handlePageHide = () => cleanupDocx(true)
+const handleWindowFocus = () => refreshSectionData()
+const handleStorageEvent = (_event: StorageEvent) => refreshSectionData()
 
 const addPreviewListeners = () => {
   if (typeof window === 'undefined') {
@@ -299,6 +446,8 @@ const addPreviewListeners = () => {
   }
   window.addEventListener('beforeunload', handleBeforeUnload)
   window.addEventListener('pagehide', handlePageHide)
+  window.addEventListener('focus', handleWindowFocus)
+  window.addEventListener('storage', handleStorageEvent)
 }
 
 const removePreviewListeners = () => {
@@ -307,10 +456,13 @@ const removePreviewListeners = () => {
   }
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('pagehide', handlePageHide)
+  window.removeEventListener('focus', handleWindowFocus)
+  window.removeEventListener('storage', handleStorageEvent)
 }
 
 onMounted(() => {
   userToken.value = sessionService.getUserToken()
+  refreshSectionData()
   addPreviewListeners()
 })
 
@@ -342,131 +494,172 @@ onBeforeUnmount(() => {
   color: var(--muted);
 }
 
-.info-message {
+.st-intro-preview-body {
+  display: grid;
+  gap: 24px;
   padding: 24px;
-  text-align: center;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+}
+
+@media (max-width: 1024px) {
+  .st-intro-preview-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.status-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.status-header h2 {
+  margin: 0;
+}
+
+.status-header p {
+  margin: 0;
   color: var(--muted);
 }
 
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.modal-card {
-  background: var(--bg);
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+.status-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
-  max-height: 90vh;
-  width: 100%;
-  max-width: 1200px;
+  gap: 12px;
 }
 
-.docx-modal {
-  max-width: 1400px;
+.status-item {
+  border: 1px solid #374151;
+  border-radius: 12px;
+  padding: 16px;
+  background: #111827;
 }
 
-.modal-header {
+.status-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid #374151;
+  gap: 12px;
 }
 
-.modal-header h2 {
-  margin: 0;
-  font-size: 20px;
+.status-name {
+  font-weight: 600;
 }
 
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 32px;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--text);
-  padding: 0;
-  width: 32px;
-  height: 32px;
+.status-pill {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-pill.complete {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.status-pill.missing {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+
+.missing-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: #fca5a5;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.status-alert {
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.status-alert.info {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #93c5fd;
+}
+
+.status-alert.warning {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: #fca5a5;
+}
+
+.preview-column {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.modal-close:hover {
-  color: var(--primary);
+.preview-header h2 {
+  margin: 0;
 }
 
-.modal-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px;
-}
-
-.docx-modal-body {
-  padding: 0;
-  background: #1a1a1a;
-}
-
-.docx-preview-shell {
-  position: relative;
-  min-height: 500px;
-  width: 100%;
-}
-
-.modal-status {
-  padding: 24px;
-  text-align: center;
+.preview-header p {
+  margin: 0;
   color: var(--muted);
 }
 
-.modal-status.overlay {
+.preview-window {
+  position: relative;
+  border: 1px solid #374151;
+  border-radius: 12px;
+  background: var(--bg);
+  min-height: 360px;
+  max-height: 70vh;
+  overflow: hidden;
+}
+
+@media (max-width: 1024px) {
+  .preview-window {
+    max-height: none;
+  }
+}
+
+.preview-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 10;
+  background: rgba(15, 23, 42, 0.78);
+  color: #f8fafc;
+  font-weight: 600;
+  z-index: 2;
 }
 
-.modal-error {
+.preview-message {
   padding: 24px;
   text-align: center;
-  color: #ef4444;
+}
+
+.preview-message.muted {
+  color: var(--muted);
+}
+
+.preview-message.error {
+  color: #f87171;
 }
 
 .docx-preview-container {
-  padding: 24px;
+  height: 100%;
   overflow-y: auto;
-  max-height: calc(90vh - 200px);
+  padding: 24px;
 }
 
-.docx-preview-container.hidden {
-  display: none;
-}
-
-.modal-footer {
+.preview-actions {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  padding: 20px 24px;
-  border-top: 1px solid #374151;
 }
 
 .btn {
