@@ -60,6 +60,7 @@ export interface TOEOverviewSessionData {
 }
 
 export interface TOEDescriptionSessionData {
+  toeGeneralDescription: string
   toePhysicalScope: string
   toeLogicalScope: string
   userToken: string
