@@ -10,6 +10,15 @@
     <div class="card toe-description-body">
       <form class="toe-description-form">
         <div class="form-section">
+          <h3>Target of Evaluation (TOE) Description:</h3>
+          <RichTextEditor
+            v-model="form.toeGeneralDescription"
+            placeholder="Enter overall TOE description"
+            min-height="260px"
+          />
+        </div>
+
+        <div class="form-section">
           <h3>TOE Physical Scope:</h3>
           <RichTextEditor
             v-model="form.toePhysicalScope"
@@ -37,12 +46,14 @@ import RichTextEditor from '../components/RichTextEditor.vue'
 import { sessionService } from '../services/sessionService'
 
 const form = reactive({
+  toeGeneralDescription: '',
   toePhysicalScope: '',
   toeLogicalScope: '',
 })
 
 function saveSessionData() {
   sessionService.saveTOEDescriptionData({
+    toeGeneralDescription: form.toeGeneralDescription,
     toePhysicalScope: form.toePhysicalScope,
     toeLogicalScope: form.toeLogicalScope,
   })
@@ -51,8 +62,9 @@ function saveSessionData() {
 function loadSessionData() {
   const data = sessionService.loadTOEDescriptionData()
   if (data) {
-    form.toePhysicalScope = data.toePhysicalScope
-    form.toeLogicalScope = data.toeLogicalScope
+    form.toeGeneralDescription = data.toeGeneralDescription || ''
+    form.toePhysicalScope = data.toePhysicalScope || ''
+    form.toeLogicalScope = data.toeLogicalScope || ''
   }
 }
 

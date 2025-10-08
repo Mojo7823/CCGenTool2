@@ -7,9 +7,6 @@
       <RouterLink to="/generator" active-class="active">Generator</RouterLink>
     </li>
     <li>
-      <RouterLink to="/settings" active-class="active">Settings</RouterLink>
-    </li>
-    <li>
       <div class="accordion">
         <div class="accordion-header" @click="stIntroOpen = !stIntroOpen">
           <span>ST Introduction</span>
@@ -41,6 +38,10 @@
         </div>
       </div>
     </li>
+    <li class="menu-spacer" aria-hidden="true"></li>
+    <li class="settings-link">
+      <RouterLink to="/settings" active-class="active">Settings</RouterLink>
+    </li>
   </ul>
 </template>
 
@@ -51,4 +52,17 @@ const securityOpen = ref(true)
 </script>
 
 <style scoped>
+.menu {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.menu-spacer {
+  flex: 1;
+}
+
+.settings-link {
+  margin-top: auto;
+}
 </style>
