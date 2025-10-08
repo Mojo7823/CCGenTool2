@@ -60,6 +60,7 @@ export interface TOEOverviewSessionData {
 }
 
 export interface TOEDescriptionSessionData {
+  toeDescription: string
   toePhysicalScope: string
   toeLogicalScope: string
   userToken: string
@@ -521,6 +522,10 @@ class SessionService {
         console.warn('Session token mismatch, ignoring stored TOE Description data')
         return null
       }
+
+      sessionData.toeDescription = sessionData.toeDescription || ''
+      sessionData.toePhysicalScope = sessionData.toePhysicalScope || ''
+      sessionData.toeLogicalScope = sessionData.toeLogicalScope || ''
 
       return sessionData
     } catch (error) {

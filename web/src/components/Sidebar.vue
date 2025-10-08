@@ -7,9 +7,6 @@
       <RouterLink to="/generator" active-class="active">Generator</RouterLink>
     </li>
     <li>
-      <RouterLink to="/settings" active-class="active">Settings</RouterLink>
-    </li>
-    <li>
       <div class="accordion">
         <div class="accordion-header" @click="stIntroOpen = !stIntroOpen">
           <span>ST Introduction</span>
@@ -40,6 +37,9 @@
           </ul>
         </div>
       </div>
+    </li>
+    <li>
+      <RouterLink to="/settings" active-class="active">Settings</RouterLink>
     </li>
   </ul>
 </template>
