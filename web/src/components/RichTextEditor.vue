@@ -2,10 +2,10 @@
   <div v-if="editor" class="rich-text-editor">
     <div class="toolbar">
       <div class="toolbar-group">
-        <button type="button" class="toolbar-button" :disabled="!editor.can().undo()" @click="editor.chain().focus().undo().run()">
+        <button type="button" class="toolbar-button" title="Undo" :disabled="!editor.can().undo()" @click="editor.chain().focus().undo().run()">
           ⟲
         </button>
-        <button type="button" class="toolbar-button" :disabled="!editor.can().redo()" @click="editor.chain().focus().redo().run()">
+        <button type="button" class="toolbar-button" title="Redo" :disabled="!editor.can().redo()" @click="editor.chain().focus().redo().run()">
           ⟳
         </button>
       </div>
@@ -33,18 +33,30 @@
       </div>
 
       <div class="toolbar-group format-group">
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('bold') }" @click="toggleInline('bold')">
+        <button type="button" class="toolbar-button" title="Bold" :class="{ active: editor.isActive('bold') }" @click="toggleInline('bold')">
           B
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('italic') }" @click="toggleInline('italic')">
+        <button type="button" class="toolbar-button" title="Italic" :class="{ active: editor.isActive('italic') }" @click="toggleInline('italic')">
           I
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('strike') }" @click="toggleInline('strike')">
+        <button type="button" class="toolbar-button" title="Strikethrough" :class="{ active: editor.isActive('strike') }" @click="toggleInline('strike')">
           S
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('underline') }" @click="toggleInline('underline')">
+        <button type="button" class="toolbar-button" title="Underline" :class="{ active: editor.isActive('underline') }" @click="toggleInline('underline')">
           U
         </button>
+      </div>
+
+      <div class="toolbar-group">
+        <label class="toolbar-label" for="text-color-select">Text Color</label>
+        <select id="text-color-select" class="toolbar-select" v-model="textColorSelection" @change="applyTextColor">
+          <option value="">Select</option>
+          <option value="red">Red</option>
+          <option value="blue">Blue</option>
+          <option value="green">Green</option>
+          <option value="black">Black</option>
+          <option value="remove">Remove color</option>
+        </select>
       </div>
 
       <div class="toolbar-group">
@@ -60,31 +72,38 @@
       </div>
 
       <div class="toolbar-group format-group">
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('superscript') }" @click="toggleSuperscript">
+        <button type="button" class="toolbar-button" title="Superscript" :class="{ active: editor.isActive('superscript') }" @click="toggleSuperscript">
           X<sup>2</sup>
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('subscript') }" @click="toggleSubscript">
+        <button type="button" class="toolbar-button" title="Subscript" :class="{ active: editor.isActive('subscript') }" @click="toggleSubscript">
           X<sub>2</sub>
         </button>
       </div>
 
       <div class="toolbar-group format-group">
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'left' }) }" @click="setAlignment('left')">
+        <button type="button" class="toolbar-button" title="Align Left" :class="{ active: editor.isActive({ textAlign: 'left' }) }" @click="setAlignment('left')">
           ⬅
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'center' }) }" @click="setAlignment('center')">
+        <button type="button" class="toolbar-button" title="Align Center" :class="{ active: editor.isActive({ textAlign: 'center' }) }" @click="setAlignment('center')">
           ⬍
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'right' }) }" @click="setAlignment('right')">
+        <button type="button" class="toolbar-button" title="Align Right" :class="{ active: editor.isActive({ textAlign: 'right' }) }" @click="setAlignment('right')">
           ➡
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'justify' }) }" @click="setAlignment('justify')">
+        <button type="button" class="toolbar-button" title="Justify" :class="{ active: editor.isActive({ textAlign: 'justify' }) }" @click="setAlignment('justify')">
           ☰
         </button>
       </div>
 
       <div class="toolbar-group">
-        <button type="button" class="toolbar-button" @click="insertImage">🖼</button>
+        <button type="button" class="toolbar-button" title="Insert Image" @click="triggerImageUpload">🖼</button>
+        <input
+          ref="imageFileInput"
+          type="file"
+          accept="image/*"
+          style="display: none"
+          @change="handleImageUpload"
+        />
       </div>
 
       <div class="toolbar-group table-group">
@@ -93,7 +112,7 @@
           <input type="number" min="1" v-model.number="tableRows" />
           <span>×</span>
           <input type="number" min="1" v-model.number="tableCols" />
-          <button type="button" class="toolbar-button" @click="insertTable">Insert</button>
+          <button type="button" class="toolbar-button" title="Insert Table" @click="insertTable">Insert</button>
         </div>
         <label class="toolbar-label" for="table-action-select">Delete</label>
         <select id="table-action-select" class="toolbar-select" v-model="tableAction" @change="handleTableAction">
@@ -126,6 +145,8 @@ import Subscript from '@tiptap/extension-subscript'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import Placeholder from '@tiptap/extension-placeholder'
+import Color from '@tiptap/extension-color'
+import TextStyle from '@tiptap/extension-text-style'
 
 const props = withDefaults(
   defineProps<{
@@ -145,15 +166,24 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const headingSelection = ref<'paragraph' | '1' | '2' | '3' | '4'>('paragraph')
 const listSelection = ref('')
 const highlightSelection = ref('')
+const textColorSelection = ref('')
 const tableAction = ref('')
 const tableRows = ref(2)
 const tableCols = ref(2)
+const imageFileInput = ref<HTMLInputElement | null>(null)
 
 const highlightMap: Record<string, string> = {
   green: '#22c55e',
   yellow: '#facc15',
   blue: '#60a5fa',
   red: '#f87171',
+}
+
+const textColorMap: Record<string, string> = {
+  red: '#ef4444',
+  blue: '#3b82f6',
+  green: '#22c55e',
+  black: '#000000',
 }
 
 const editor = useEditor({
@@ -165,10 +195,15 @@ const editor = useEditor({
       },
     }),
     Underline,
+    TextStyle,
+    Color,
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Image.configure({ inline: false, allowBase64: true }),
-    Table.configure({ resizable: true }),
+    Table.configure({ 
+      resizable: true,
+      cellMinWidth: 50,
+    }),
     TableRow,
     TableHeader,
     TableCell,
@@ -257,6 +292,18 @@ function toggleInline(type: 'bold' | 'italic' | 'strike' | 'underline') {
   }
 }
 
+function applyTextColor() {
+  if (!editor?.value) return
+  const value = textColorSelection.value
+  const chain = editor.value.chain().focus()
+  if (value === 'remove') {
+    chain.unsetColor().run()
+  } else if (value in textColorMap) {
+    chain.setColor(textColorMap[value]).run()
+  }
+  textColorSelection.value = ''
+}
+
 function applyHighlight() {
   if (!editor?.value) return
   const value = highlightSelection.value
@@ -284,11 +331,26 @@ function setAlignment(alignment: 'left' | 'center' | 'right' | 'justify') {
   editor.value.chain().focus().setTextAlign(alignment).run()
 }
 
-function insertImage() {
-  if (!editor?.value) return
-  const url = window.prompt('Enter image URL')
-  if (!url) return
-  editor.value.chain().focus().setImage({ src: url }).run()
+function triggerImageUpload() {
+  imageFileInput.value?.click()
+}
+
+function handleImageUpload(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const src = e.target?.result as string
+    if (src && editor?.value) {
+      editor.value.chain().focus().setImage({ src }).run()
+    }
+  }
+  reader.readAsDataURL(file)
+  
+  // Reset input so same file can be selected again
+  target.value = ''
 }
 
 function insertTable() {
@@ -420,6 +482,13 @@ onBeforeUnmount(() => {
   background: rgba(15, 23, 42, 0.6);
   color: var(--text);
   line-height: 1.6;
+  cursor: text;
+  min-height: inherit;
+}
+
+.editor :deep(.ProseMirror) {
+  min-height: inherit;
+  outline: none;
 }
 
 .editor :deep(p.is-editor-empty:first-child::before) {
@@ -433,12 +502,43 @@ onBeforeUnmount(() => {
 .editor :deep(table) {
   border-collapse: collapse;
   width: 100%;
+  position: relative;
+}
+
+.editor :deep(table:hover) {
+  outline: 2px solid rgba(59, 130, 246, 0.4);
+  outline-offset: 2px;
 }
 
 .editor :deep(th),
 .editor :deep(td) {
   border: 1px solid #4b5563;
   padding: 6px 10px;
+  position: relative;
+}
+
+.editor :deep(.selectedCell) {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.editor :deep(.resize-cursor) {
+  cursor: col-resize;
+}
+
+.editor :deep(.column-resize-handle) {
+  background-color: #3b82f6;
+  bottom: -2px;
+  position: absolute;
+  right: -2px;
+  pointer-events: none;
+  top: 0;
+  width: 4px;
+}
+
+.editor :deep(th:hover),
+.editor :deep(td:hover) {
+  background: rgba(59, 130, 246, 0.08);
+  cursor: pointer;
 }
 
 .editor :deep(ul),

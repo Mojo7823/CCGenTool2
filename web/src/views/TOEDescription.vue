@@ -3,12 +3,21 @@
     <div class="card toe-description-menubar">
       <div class="toe-description-menubar-left">
         <h1>Target of Evaluation (TOE) Description</h1>
-        <span class="menubar-subtitle">Please describe your Target of Evaluation (TOE) Physical boundary scope and Logical boundary scope</span>
+        <span class="menubar-subtitle">Please describe your Target of Evaluation (TOE) and its Physical and Logical boundary scopes</span>
       </div>
     </div>
 
     <div class="card toe-description-body">
       <form class="toe-description-form">
+        <div class="form-section">
+          <h3>TOE Description:</h3>
+          <RichTextEditor
+            v-model="form.toeDescription"
+            placeholder="Enter TOE Description"
+            min-height="260px"
+          />
+        </div>
+
         <div class="form-section">
           <h3>TOE Physical Scope:</h3>
           <RichTextEditor
@@ -37,12 +46,14 @@ import RichTextEditor from '../components/RichTextEditor.vue'
 import { sessionService } from '../services/sessionService'
 
 const form = reactive({
+  toeDescription: '',
   toePhysicalScope: '',
   toeLogicalScope: '',
 })
 
 function saveSessionData() {
   sessionService.saveTOEDescriptionData({
+    toeDescription: form.toeDescription,
     toePhysicalScope: form.toePhysicalScope,
     toeLogicalScope: form.toeLogicalScope,
   })
@@ -51,6 +62,7 @@ function saveSessionData() {
 function loadSessionData() {
   const data = sessionService.loadTOEDescriptionData()
   if (data) {
+    form.toeDescription = data.toeDescription || ''
     form.toePhysicalScope = data.toePhysicalScope
     form.toeLogicalScope = data.toeLogicalScope
   }
