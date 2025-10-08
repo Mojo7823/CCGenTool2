@@ -4,9 +4,6 @@
       <RouterLink to="/" active-class="active">Home</RouterLink>
     </li>
     <li>
-      <RouterLink to="/generator" active-class="active">Generator</RouterLink>
-    </li>
-    <li>
       <div class="accordion">
         <div class="accordion-header" @click="stIntroOpen = !stIntroOpen">
           <span>ST Introduction</span>
@@ -25,6 +22,9 @@
       </div>
     </li>
     <li>
+      <RouterLink to="/conformanceclaims" active-class="active">Conformance Claims</RouterLink>
+    </li>
+    <li>
       <div class="accordion">
         <div class="accordion-header" @click="securityOpen = !securityOpen">
           <span>Security Requirements</span>
@@ -37,9 +37,6 @@
           </ul>
         </div>
       </div>
-    </li>
-    <li>
-      <RouterLink to="/conformanceclaims" active-class="active">Conformance Claims</RouterLink>
     </li>
     <li>
       <RouterLink to="/final-preview" active-class="active">Final Document Preview</RouterLink>

@@ -25,6 +25,7 @@
         <a
           v-if="generatedDocxPath && !previewLoading && !previewError"
           :href="downloadUrl"
+          target="_blank"
           download="Security_Target_Document.docx"
           class="btn primary"
         >
