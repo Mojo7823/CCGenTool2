@@ -47,3 +47,5 @@ Thumbs.db
 # Database
 *.db
 *.sqlite
+# Playwright
+web/test-results/

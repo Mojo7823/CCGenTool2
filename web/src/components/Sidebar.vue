@@ -4,7 +4,22 @@
       <RouterLink to="/" active-class="active">Home</RouterLink>
     </li>
     <li>
-      <RouterLink to="/cover" active-class="active">Cover Builder</RouterLink>
+      <div class="accordion">
+        <div class="accordion-header" @click="stOpen = !stOpen">
+          <span>ST Introduction</span>
+          <span>{{ stOpen ? '▾' : '▸' }}</span>
+        </div>
+        <div v-if="stOpen" class="accordion-content">
+          <ul class="menu">
+            <li><RouterLink to="/cover" active-class="active">Cover</RouterLink></li>
+            <li><RouterLink to="/st/introduction/reference" active-class="active">ST Reference</RouterLink></li>
+            <li><RouterLink to="/st/introduction/toe-reference" active-class="active">TOE Reference</RouterLink></li>
+            <li><RouterLink to="/st/introduction/toe-overview" active-class="active">TOE Overview</RouterLink></li>
+            <li><RouterLink to="/st/introduction/toe-description" active-class="active">TOE Description</RouterLink></li>
+            <li><RouterLink to="/st/introduction/preview" active-class="active">ST Introduction Preview</RouterLink></li>
+          </ul>
+        </div>
+      </div>
     </li>
     <li>
       <RouterLink to="/generator" active-class="active">Generator</RouterLink>
@@ -32,6 +47,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 const securityOpen = ref(true)
+const stOpen = ref(true)
 </script>
 
 <style scoped>

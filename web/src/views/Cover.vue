@@ -16,6 +16,13 @@
     </div>
 
     <div class="card cover-body">
+      <div class="save-status" :class="{ saving, error: !!saveError }">
+        <span v-if="saveError">{{ saveError }}</span>
+        <span v-else-if="saving">Saving…</span>
+        <span v-else-if="lastSaved">Saved {{ lastSavedLabel }}</span>
+        <span v-else>Changes are saved automatically.</span>
+      </div>
+
       <div class="cover-grid">
         <section class="image-panel">
           <div class="drop-area"
@@ -108,9 +115,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
+import { useSessionStore } from '../stores/session'
+import { saveCoverSection } from '../services/stIntroduction'
+
+const session = useSessionStore()
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragActive = ref(false)
@@ -130,31 +141,27 @@ const form = reactive({
   revision: '',
   description: '',
   manufacturer: '',
-  date: ''
+  date: '',
 })
 
-const storageKey = 'ccgen-user-id'
-const userId = ref('')
+const saving = ref(false)
+const saveError = ref('')
+const lastSaved = ref<Date | null>(null)
+const ready = ref(false)
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+
+const userId = computed(() => session.userId)
+
+const lastSavedLabel = computed(() => {
+  if (!lastSaved.value) return ''
+  return lastSaved.value.toLocaleTimeString()
+})
 
 const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !!form.description)
 const imageUrl = computed(() => {
   if (!uploadedImagePath.value) return ''
   return api.getUri({ url: uploadedImagePath.value })
 })
-
-function ensureUserId() {
-  if (typeof window === 'undefined') return
-  const existing = window.localStorage.getItem(storageKey)
-  if (existing) {
-    userId.value = existing
-    return
-  }
-  const generated = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2)
-  userId.value = generated
-  window.localStorage.setItem(storageKey, generated)
-}
 
 function triggerFileDialog() {
   fileInput.value?.click()
@@ -173,6 +180,10 @@ function validateImage(file: File) {
 }
 
 async function uploadFile(file: File) {
+  if (!userId.value) {
+    session.ensureUserId()
+  }
+
   if (!userId.value) return
   uploading.value = true
   uploadError.value = ''
@@ -186,6 +197,7 @@ async function uploadFile(file: File) {
     })
     uploadedImagePath.value = response.data.path
     hasUploaded.value = true
+    await persistCover(true)
   } catch (error: any) {
     console.error('Upload failed', error)
     resetUploadState(error?.response?.data?.detail || error?.message || 'Failed to upload image.')
@@ -211,7 +223,7 @@ async function openPreview() {
   if (!hasPreview.value || previewLoading.value) return
 
   if (!userId.value) {
-    ensureUserId()
+    session.ensureUserId()
   }
 
   if (!userId.value) {
@@ -222,6 +234,14 @@ async function openPreview() {
 
   // Remove any previously generated preview before creating a fresh one.
   cleanupDocx()
+
+  const saved = await persistCover(true)
+  if (!saved) {
+    previewError.value = saveError.value || 'Unable to save cover information before generating preview.'
+    showPreview.value = true
+    previewLoading.value = false
+    return
+  }
 
   previewError.value = ''
   showPreview.value = true
@@ -322,7 +342,16 @@ function handlePageHide() {
 }
 
 onMounted(() => {
-  ensureUserId()
+  session.ensureUserId()
+  session.loadSession().then(() => {
+    Object.assign(form, session.cover.fields)
+    if (session.cover.image_path) {
+      uploadedImagePath.value = session.cover.image_path
+      hasUploaded.value = !!session.cover.image_path
+    }
+    ready.value = true
+  })
+
   if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', handleBeforeUnload)
     window.addEventListener('pagehide', handlePageHide)
@@ -330,9 +359,69 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  cleanupUploads()
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+  }
+  cleanupDocx()
   removeEventListeners()
 })
+
+const schedulePersist = (immediate = false) => {
+  if (!ready.value || !userId.value) return
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+  }
+  if (immediate) {
+    void persistCover(true)
+    return
+  }
+  saveTimer = setTimeout(() => {
+    void persistCover()
+  }, 400)
+}
+
+async function persistCover(immediate = false): Promise<boolean> {
+  if (!ready.value || !userId.value) return false
+
+  if (immediate && saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+
+  saving.value = true
+  saveError.value = ''
+  try {
+    const payload = {
+      user_id: userId.value,
+      title: form.title,
+      version: form.version,
+      revision: form.revision,
+      description: form.description,
+      manufacturer: form.manufacturer,
+      date: form.date,
+      image_path: uploadedImagePath.value,
+    }
+    const result = await saveCoverSection(payload)
+    session.updateCover(result)
+    if (typeof result?.image_path === 'string') {
+      uploadedImagePath.value = result.image_path || null
+      hasUploaded.value = !!result.image_path
+    }
+    lastSaved.value = new Date()
+    return true
+  } catch (error: any) {
+    console.error('Failed to save cover data', error)
+    saveError.value = error?.response?.data?.detail || 'Unable to save cover data.'
+    return false
+  } finally {
+    saving.value = false
+  }
+}
+
+watch(form, () => {
+  if (!ready.value) return
+  schedulePersist()
+}, { deep: true })
 </script>
 
 <style scoped>
@@ -359,12 +448,28 @@ onBeforeUnmount(() => {
 
 .cover-body {
   padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .cover-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   gap: 24px;
+}
+
+.save-status {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.save-status.saving {
+  color: var(--text);
+}
+
+.save-status.error {
+  color: var(--danger);
 }
 
 @media (max-width: 1024px) {
