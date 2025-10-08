@@ -150,7 +150,7 @@ function hasTOEOverviewContent(data: TOEOverviewSessionData | null): boolean {
 
 function hasTOEDescriptionContent(data: TOEDescriptionSessionData | null): boolean {
   if (!data) return false
-  return Boolean(data.toePhysicalScope || data.toeLogicalScope)
+  return Boolean(data.toeDescription || data.toePhysicalScope || data.toeLogicalScope)
 }
 
 function updateSectionStatus() {
@@ -260,22 +260,27 @@ function buildTOEOverviewHTML(): string {
 
 function buildTOEDescriptionHTML(): string {
   const data = sessionService.loadTOEDescriptionData()
-  if (!data || (!data.toePhysicalScope && !data.toeLogicalScope)) {
+  if (!data || (!data.toeDescription && !data.toePhysicalScope && !data.toeLogicalScope)) {
     return ''
   }
 
   let html = ''
-  
+
+  if (data.toeDescription) {
+    html += '<h4>1.4 Target of Evaluation (TOE) Description</h4>'
+    html += `<div>${data.toeDescription}</div>`
+  }
+
   if (data.toePhysicalScope) {
-    html += '<h4>1.4.1 TOE Physical Scope</h4>'
+    html += '<h5>1.4.1 TOE Physical Scope</h5>'
     html += `<div>${data.toePhysicalScope}</div>`
   }
-  
+
   if (data.toeLogicalScope) {
-    html += '<h4>1.4.2 TOE Logical Scope</h4>'
+    html += '<h5>1.4.2 TOE Logical Scope</h5>'
     html += `<div>${data.toeLogicalScope}</div>`
   }
-  
+
   return html
 }
 

@@ -2,10 +2,22 @@
   <div v-if="editor" class="rich-text-editor">
     <div class="toolbar">
       <div class="toolbar-group">
-        <button type="button" class="toolbar-button" :disabled="!editor.can().undo()" @click="editor.chain().focus().undo().run()">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Undo"
+          :disabled="!editor.can().undo()"
+          @click="editor.chain().focus().undo().run()"
+        >
           ⟲
         </button>
-        <button type="button" class="toolbar-button" :disabled="!editor.can().redo()" @click="editor.chain().focus().redo().run()">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Redo"
+          :disabled="!editor.can().redo()"
+          @click="editor.chain().focus().redo().run()"
+        >
           ⟳
         </button>
       </div>
@@ -32,17 +44,53 @@
         </select>
       </div>
 
+      <div class="toolbar-group">
+        <label class="toolbar-label" for="color-select">Text Color</label>
+        <select id="color-select" class="toolbar-select" v-model="textColorSelection" @change="applyTextColor">
+          <option value="">Select</option>
+          <option value="black">Black</option>
+          <option value="red">Red</option>
+          <option value="blue">Blue</option>
+          <option value="green">Green</option>
+          <option value="remove">Remove color</option>
+        </select>
+      </div>
+
       <div class="toolbar-group format-group">
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('bold') }" @click="toggleInline('bold')">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Bold"
+          :class="{ active: editor.isActive('bold') }"
+          @click="toggleInline('bold')"
+        >
           B
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('italic') }" @click="toggleInline('italic')">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Italic"
+          :class="{ active: editor.isActive('italic') }"
+          @click="toggleInline('italic')"
+        >
           I
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('strike') }" @click="toggleInline('strike')">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Strikethrough"
+          :class="{ active: editor.isActive('strike') }"
+          @click="toggleInline('strike')"
+        >
           S
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('underline') }" @click="toggleInline('underline')">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Underline"
+          :class="{ active: editor.isActive('underline') }"
+          @click="toggleInline('underline')"
+        >
           U
         </button>
       </div>
@@ -60,40 +108,76 @@
       </div>
 
       <div class="toolbar-group format-group">
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('superscript') }" @click="toggleSuperscript">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Superscript"
+          :class="{ active: editor.isActive('superscript') }"
+          @click="toggleSuperscript"
+        >
           X<sup>2</sup>
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('subscript') }" @click="toggleSubscript">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Subscript"
+          :class="{ active: editor.isActive('subscript') }"
+          @click="toggleSubscript"
+        >
           X<sub>2</sub>
         </button>
       </div>
 
       <div class="toolbar-group format-group">
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'left' }) }" @click="setAlignment('left')">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Align left"
+          :class="{ active: editor.isActive({ textAlign: 'left' }) }"
+          @click="setAlignment('left')"
+        >
           ⬅
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'center' }) }" @click="setAlignment('center')">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Align center"
+          :class="{ active: editor.isActive({ textAlign: 'center' }) }"
+          @click="setAlignment('center')"
+        >
           ⬍
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'right' }) }" @click="setAlignment('right')">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Align right"
+          :class="{ active: editor.isActive({ textAlign: 'right' }) }"
+          @click="setAlignment('right')"
+        >
           ➡
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'justify' }) }" @click="setAlignment('justify')">
+        <button
+          type="button"
+          class="toolbar-button"
+          title="Justify"
+          :class="{ active: editor.isActive({ textAlign: 'justify' }) }"
+          @click="setAlignment('justify')"
+        >
           ☰
         </button>
       </div>
 
       <div class="toolbar-group">
-        <button type="button" class="toolbar-button" @click="insertImage">🖼</button>
+        <button type="button" class="toolbar-button" title="Insert image" @click="insertImage">🖼</button>
       </div>
 
       <div class="toolbar-group table-group">
         <label class="toolbar-label">Insert Table</label>
         <div class="table-inputs">
-          <input type="number" min="1" v-model.number="tableRows" />
+          <input type="number" min="1" v-model.number="tableRows" title="Table rows" />
           <span>×</span>
-          <input type="number" min="1" v-model.number="tableCols" />
-          <button type="button" class="toolbar-button" @click="insertTable">Insert</button>
+          <input type="number" min="1" v-model.number="tableCols" title="Table columns" />
+          <button type="button" class="toolbar-button" title="Insert table" @click="insertTable">Insert</button>
         </div>
         <label class="toolbar-label" for="table-action-select">Delete</label>
         <select id="table-action-select" class="toolbar-select" v-model="tableAction" @change="handleTableAction">
@@ -105,7 +189,17 @@
       </div>
     </div>
 
-    <EditorContent :editor="editor" class="editor" :style="{ minHeight: minHeight }" />
+    <input
+      ref="imageInput"
+      type="file"
+      accept="image/*"
+      class="visually-hidden"
+      @change="handleImageSelection"
+    />
+
+    <div class="editor-shell" :style="{ '--editor-min-height': minHeight }">
+      <EditorContent :editor="editor" class="editor" />
+    </div>
   </div>
 </template>
 
@@ -116,7 +210,9 @@ import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Highlight from '@tiptap/extension-highlight'
 import TextAlign from '@tiptap/extension-text-align'
-import Image from '@tiptap/extension-image'
+import { TextStyle } from '@tiptap/extension-text-style'
+import Color from '@tiptap/extension-color'
+import { ResizableImage } from 'tiptap-extension-resizable-image'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
@@ -126,6 +222,7 @@ import Subscript from '@tiptap/extension-subscript'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import Placeholder from '@tiptap/extension-placeholder'
+import 'tiptap-extension-resizable-image/styles.css'
 
 const props = withDefaults(
   defineProps<{
@@ -145,15 +242,24 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const headingSelection = ref<'paragraph' | '1' | '2' | '3' | '4'>('paragraph')
 const listSelection = ref('')
 const highlightSelection = ref('')
+const textColorSelection = ref('')
 const tableAction = ref('')
 const tableRows = ref(2)
 const tableCols = ref(2)
+const imageInput = ref<HTMLInputElement | null>(null)
 
 const highlightMap: Record<string, string> = {
   green: '#22c55e',
   yellow: '#facc15',
   blue: '#60a5fa',
   red: '#f87171',
+}
+
+const textColorMap: Record<string, string> = {
+  black: '#000000',
+  red: '#ef4444',
+  blue: '#3b82f6',
+  green: '#22c55e',
 }
 
 const editor = useEditor({
@@ -167,7 +273,13 @@ const editor = useEditor({
     Underline,
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
-    Image.configure({ inline: false, allowBase64: true }),
+    TextStyle,
+    Color.configure({ types: ['textStyle'] }),
+    ResizableImage.configure({
+      allowBase64: true,
+      HTMLAttributes: { class: 'editor-image' },
+      minWidth: 100,
+    }),
     Table.configure({ resizable: true }),
     TableRow,
     TableHeader,
@@ -195,6 +307,14 @@ function updateToolbarState() {
   else if (instance.isActive('heading', { level: 3 })) headingSelection.value = '3'
   else if (instance.isActive('heading', { level: 4 })) headingSelection.value = '4'
   else headingSelection.value = 'paragraph'
+
+  const activeColor = instance.getAttributes('textStyle')?.color as string | undefined
+  if (activeColor) {
+    const match = Object.entries(textColorMap).find(([, hex]) => hex.toLowerCase() === activeColor.toLowerCase())
+    textColorSelection.value = match ? match[0] : ''
+  } else {
+    textColorSelection.value = ''
+  }
 }
 
 watch(
@@ -269,6 +389,18 @@ function applyHighlight() {
   highlightSelection.value = ''
 }
 
+function applyTextColor() {
+  if (!editor?.value) return
+  const value = textColorSelection.value
+  const chain = editor.value.chain().focus()
+  if (value === 'remove') {
+    chain.unsetColor().run()
+  } else if (value in textColorMap) {
+    chain.setColor(textColorMap[value]).run()
+  }
+  textColorSelection.value = ''
+}
+
 function toggleSuperscript() {
   if (!editor?.value) return
   editor.value.chain().focus().toggleSuperscript().run()
@@ -285,10 +417,7 @@ function setAlignment(alignment: 'left' | 'center' | 'right' | 'justify') {
 }
 
 function insertImage() {
-  if (!editor?.value) return
-  const url = window.prompt('Enter image URL')
-  if (!url) return
-  editor.value.chain().focus().setImage({ src: url }).run()
+  imageInput.value?.click()
 }
 
 function insertTable() {
@@ -296,6 +425,39 @@ function insertTable() {
   const rows = Math.max(1, tableRows.value || 1)
   const cols = Math.max(1, tableCols.value || 1)
   editor.value.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()
+}
+
+async function handleImageSelection(event: Event) {
+  if (!editor?.value) return
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+
+  if (!file) {
+    target.value = ''
+    return
+  }
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file)
+    editor.value
+      .chain()
+      .focus()
+      .setResizableImage({ src: dataUrl, 'data-keep-ratio': true })
+      .run()
+  } catch (error) {
+    console.error('Failed to insert image:', error)
+  } finally {
+    target.value = ''
+  }
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
 }
 
 function handleTableAction() {
@@ -356,6 +518,18 @@ onBeforeUnmount(() => {
   padding-left: 12px;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .toolbar-label {
   font-size: 0.75rem;
   color: var(--muted);
@@ -413,13 +587,28 @@ onBeforeUnmount(() => {
   padding: 4px 6px;
 }
 
-.editor {
+.editor-shell {
   border: 1px solid #374151;
   border-radius: 12px;
-  padding: 16px;
   background: rgba(15, 23, 42, 0.6);
+  min-height: var(--editor-min-height, 220px);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  width: 100%;
+}
+
+.editor-shell:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.4);
+}
+
+.editor {
+  min-height: var(--editor-min-height, 220px);
+  padding: 16px;
   color: var(--text);
   line-height: 1.6;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: text;
 }
 
 .editor :deep(p.is-editor-empty:first-child::before) {
@@ -433,6 +622,37 @@ onBeforeUnmount(() => {
 .editor :deep(table) {
   border-collapse: collapse;
   width: 100%;
+}
+
+.editor :deep(.tableWrapper) {
+  overflow-x: auto;
+  position: relative;
+  border-radius: 8px;
+  transition: box-shadow 0.2s ease;
+}
+
+.editor :deep(.tableWrapper .selectedCell) {
+  position: relative;
+  background: rgba(37, 99, 235, 0.18);
+  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.45);
+}
+
+.editor :deep(.tableWrapper .selectedCell::after) {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(59, 130, 246, 0.8);
+  pointer-events: none;
+}
+
+.editor :deep(.column-resize-handle) {
+  background-color: rgba(59, 130, 246, 0.8);
+  width: 3px;
+}
+
+.editor :deep(.editor-image) {
+  max-width: 100%;
+  height: auto;
 }
 
 .editor :deep(th),
