@@ -22,15 +22,17 @@
         >
           {{ previewLoading ? 'Generating…' : 'Generate Preview' }}
         </button>
-        <a
+        <button
           v-if="generatedDocxPath && !previewLoading && !previewError"
-          :href="downloadUrl"
-          download="Security_Target_Document.docx"
           class="btn primary"
+          type="button"
+          @click="downloadDocx"
+          :disabled="downloadLoading"
         >
-          Download DOCX
-        </a>
+          {{ downloadLoading ? 'Preparing…' : 'Download DOCX' }}
+        </button>
       </div>
+      <p v-if="downloadError" class="download-error">{{ downloadError }}</p>
     </div>
 
     <div class="card status-card">
@@ -117,6 +119,8 @@ const generatedDocxPath = ref<string | null>(null)
 const hasGeneratedDocx = ref(false)
 const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 const userToken = ref('')
+const downloadLoading = ref(false)
+const downloadError = ref('')
 const sectionStatus = ref<SectionStatus[]>([
   { key: 'cover', label: 'Cover', complete: false },
   { key: 'st-reference', label: 'ST Reference', complete: false },
@@ -134,15 +138,11 @@ const missingSections = computed(() =>
 
 const hasData = computed(() => sectionStatus.value.some(section => section.complete))
 
-const downloadUrl = computed(() => {
-  if (!generatedDocxPath.value) return ''
-  return api.getUri({ url: generatedDocxPath.value })
-})
-
 function hasCoverContent(data: CoverSessionData | null): boolean {
   if (!data) return false
   const form = data.form || {}
   return Boolean(
+    data.uploadedImageData ||
     data.uploadedImagePath ||
     form.title ||
     form.version ||
@@ -399,6 +399,7 @@ async function generatePreview() {
             manufacturer: coverData.form.manufacturer,
             date: coverData.form.date,
             image_path: coverData.uploadedImagePath,
+            image_data: coverData.uploadedImageData,
           }
         : null,
       st_reference_html: stReferenceHTML || null,
@@ -420,11 +421,13 @@ async function generatePreview() {
 
     generatedDocxPath.value = path
     hasGeneratedDocx.value = true
+    downloadError.value = ''
     await nextTick()
     await renderDocxPreview(path)
   } catch (error: any) {
     const message = error?.response?.data?.detail || error?.message || 'Unable to generate preview.'
     previewError.value = message
+    downloadError.value = ''
   } finally {
     previewLoading.value = false
   }
@@ -486,6 +489,7 @@ const cleanupDocx = (keepalive = false) => {
   fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
   generatedDocxPath.value = null
   hasGeneratedDocx.value = false
+  downloadError.value = ''
 }
 
 const handleBeforeUnload = () => cleanupDocx(true)
@@ -521,6 +525,60 @@ onBeforeUnmount(() => {
   cleanupDocx()
   removePreviewListeners()
 })
+
+const downloadFilename = 'Security_Target_Document.docx'
+
+async function downloadDocx() {
+  if (!generatedDocxPath.value || downloadLoading.value) {
+    return
+  }
+
+  const absoluteUrl = api.getUri({ url: generatedDocxPath.value })
+  downloadError.value = ''
+  downloadLoading.value = true
+
+  let popup: Window | null = null
+
+  try {
+    popup = window.open('', '_blank')
+    const response = await fetch(absoluteUrl, { credentials: 'include' })
+
+    if (!response.ok) {
+      throw new Error('Failed to download the generated document.')
+    }
+
+    const blob = await response.blob()
+    const blobUrl = window.URL.createObjectURL(blob)
+
+    if (popup) {
+      const link = popup.document.createElement('a')
+      link.href = blobUrl
+      link.download = downloadFilename
+      popup.document.body.appendChild(link)
+      link.click()
+      popup.document.body.removeChild(link)
+      popup.close()
+    } else {
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = downloadFilename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    }
+
+    window.setTimeout(() => window.URL.revokeObjectURL(blobUrl), 5000)
+  } catch (error: any) {
+    if (popup && !popup.closed) {
+      popup.close()
+    }
+    const message = error?.message || 'Unable to download the generated document.'
+    downloadError.value = message
+    console.error('Download failed:', error)
+  } finally {
+    downloadLoading.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -550,6 +608,12 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.download-error {
+  margin: 8px 0 0;
+  color: var(--danger);
+  font-weight: 500;
 }
 
 .status-card {
