@@ -76,6 +76,48 @@ export interface ConformanceClaimsSessionData {
   timestamp: number
 }
 
+export interface AssumptionEntry {
+  id: number
+  assumption: string
+  description: string
+}
+
+export interface ThreatEntry {
+  id: number
+  threat: string
+  description: string
+}
+
+export interface OspEntry {
+  id: number
+  osp: string
+  description: string
+}
+
+export interface AssumptionsSessionData {
+  assumptionsList: AssumptionEntry[]
+  selectedAssumptionId: number | null
+  nextAssumptionId: number
+  userToken: string
+  timestamp: number
+}
+
+export interface ThreatsSessionData {
+  threatsList: ThreatEntry[]
+  selectedThreatId: number | null
+  nextThreatId: number
+  userToken: string
+  timestamp: number
+}
+
+export interface OspSessionData {
+  ospList: OspEntry[]
+  selectedOspId: number | null
+  nextOspId: number
+  userToken: string
+  timestamp: number
+}
+
 class SessionService {
   private readonly STORAGE_KEY = 'ccgentool2_session'
   private readonly SAR_STORAGE_KEY = 'ccgentool2_sar_session'
@@ -85,6 +127,9 @@ class SessionService {
   private readonly TOE_OVERVIEW_STORAGE_KEY = 'ccgentool2_toeoverview_session'
   private readonly TOE_DESC_STORAGE_KEY = 'ccgentool2_toedesc_session'
   private readonly CONFORMANCE_CLAIMS_STORAGE_KEY = 'ccgentool2_conformance_session'
+  private readonly ASSUMPTIONS_STORAGE_KEY = 'ccgentool2_assumptions_session'
+  private readonly THREATS_STORAGE_KEY = 'ccgentool2_threats_session'
+  private readonly OSP_STORAGE_KEY = 'ccgentool2_osp_session'
   private readonly TOKEN_KEY = 'ccgentool2_user_token'
   private userToken: string
 
@@ -601,6 +646,180 @@ class SessionService {
       localStorage.removeItem(storageKey)
     } catch (error) {
       console.error('Error clearing Conformance Claims data from session:', error)
+    }
+  }
+
+  /**
+   * Save Assumptions data to session storage
+   */
+  saveAssumptionsData(assumptionsList: AssumptionEntry[], selectedAssumptionId: number | null, nextAssumptionId: number): void {
+    const sessionData: AssumptionsSessionData = {
+      assumptionsList,
+      selectedAssumptionId,
+      nextAssumptionId,
+      userToken: this.userToken,
+      timestamp: Date.now()
+    }
+
+    try {
+      const storageKey = this.getNamespacedKey(this.ASSUMPTIONS_STORAGE_KEY)
+      localStorage.setItem(storageKey, JSON.stringify(sessionData))
+    } catch (error) {
+      console.error('Error saving Assumptions data to session:', error)
+    }
+  }
+
+  /**
+   * Load Assumptions data from session storage
+   */
+  loadAssumptionsData(): AssumptionsSessionData | null {
+    try {
+      const storageKey = this.getNamespacedKey(this.ASSUMPTIONS_STORAGE_KEY)
+      const data = localStorage.getItem(storageKey)
+
+      if (!data) {
+        return null
+      }
+
+      const sessionData: AssumptionsSessionData = JSON.parse(data)
+
+      if (sessionData.userToken !== this.userToken) {
+        console.warn('Session token mismatch, ignoring stored Assumptions data')
+        return null
+      }
+
+      return sessionData
+    } catch (error) {
+      console.error('Error loading Assumptions data from session:', error)
+      return null
+    }
+  }
+
+  /**
+   * Clear Assumptions session data
+   */
+  clearAssumptionsData(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.ASSUMPTIONS_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing Assumptions data from session:', error)
+    }
+  }
+
+  /**
+   * Save Threats data to session storage
+   */
+  saveThreatsData(threatsList: ThreatEntry[], selectedThreatId: number | null, nextThreatId: number): void {
+    const sessionData: ThreatsSessionData = {
+      threatsList,
+      selectedThreatId,
+      nextThreatId,
+      userToken: this.userToken,
+      timestamp: Date.now()
+    }
+
+    try {
+      const storageKey = this.getNamespacedKey(this.THREATS_STORAGE_KEY)
+      localStorage.setItem(storageKey, JSON.stringify(sessionData))
+    } catch (error) {
+      console.error('Error saving Threats data to session:', error)
+    }
+  }
+
+  /**
+   * Load Threats data from session storage
+   */
+  loadThreatsData(): ThreatsSessionData | null {
+    try {
+      const storageKey = this.getNamespacedKey(this.THREATS_STORAGE_KEY)
+      const data = localStorage.getItem(storageKey)
+
+      if (!data) {
+        return null
+      }
+
+      const sessionData: ThreatsSessionData = JSON.parse(data)
+
+      if (sessionData.userToken !== this.userToken) {
+        console.warn('Session token mismatch, ignoring stored Threats data')
+        return null
+      }
+
+      return sessionData
+    } catch (error) {
+      console.error('Error loading Threats data from session:', error)
+      return null
+    }
+  }
+
+  /**
+   * Clear Threats session data
+   */
+  clearThreatsData(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.THREATS_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing Threats data from session:', error)
+    }
+  }
+
+  /**
+   * Save OSP data to session storage
+   */
+  saveOspData(ospList: OspEntry[], selectedOspId: number | null, nextOspId: number): void {
+    const sessionData: OspSessionData = {
+      ospList,
+      selectedOspId,
+      nextOspId,
+      userToken: this.userToken,
+      timestamp: Date.now()
+    }
+
+    try {
+      const storageKey = this.getNamespacedKey(this.OSP_STORAGE_KEY)
+      localStorage.setItem(storageKey, JSON.stringify(sessionData))
+    } catch (error) {
+      console.error('Error saving OSP data to session:', error)
+    }
+  }
+
+  /**
+   * Load OSP data from session storage
+   */
+  loadOspData(): OspSessionData | null {
+    try {
+      const storageKey = this.getNamespacedKey(this.OSP_STORAGE_KEY)
+      const data = localStorage.getItem(storageKey)
+
+      if (!data) {
+        return null
+      }
+
+      const sessionData: OspSessionData = JSON.parse(data)
+
+      if (sessionData.userToken !== this.userToken) {
+        console.warn('Session token mismatch, ignoring stored OSP data')
+        return null
+      }
+
+      return sessionData
+    } catch (error) {
+      console.error('Error loading OSP data from session:', error)
+      return null
+    }
+  }
+
+  /**
+   * Clear OSP session data
+   */
+  clearOspData(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.OSP_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing OSP data from session:', error)
     }
   }
 }

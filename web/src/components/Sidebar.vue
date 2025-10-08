@@ -22,6 +22,21 @@
       </div>
     </li>
     <li>
+      <div class="accordion">
+        <div class="accordion-header" @click="spdOpen = !spdOpen">
+          <span>Security Problem Definition</span>
+          <span>{{ spdOpen ? '▾' : '▸' }}</span>
+        </div>
+        <div v-if="spdOpen" class="accordion-content">
+          <ul class="menu">
+            <li><RouterLink to="/spd/assumptions" active-class="active">Assumptions</RouterLink></li>
+            <li><RouterLink to="/spd/threats" active-class="active">Threats</RouterLink></li>
+            <li><RouterLink to="/spd/osp" active-class="active">Organizational Security Policies</RouterLink></li>
+          </ul>
+        </div>
+      </div>
+    </li>
+    <li>
       <RouterLink to="/conformanceclaims" active-class="active">Conformance Claims</RouterLink>
     </li>
     <li>
@@ -50,6 +65,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 const stIntroOpen = ref(true)
+const spdOpen = ref(true)
 const securityOpen = ref(true)
 </script>
 
