@@ -124,6 +124,7 @@ const previewError = ref('')
 const hasUploaded = ref(false)
 const generatedDocxPath = ref<string | null>(null)
 const docxPreviewContainer = ref<HTMLDivElement | null>(null)
+const uploadedImageData = ref<string | null>(null)
 
 const form = reactive({
   title: '',
@@ -136,14 +137,17 @@ const form = reactive({
 
 const userToken = ref('')
 
-const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !!form.description)
+const hasPreview = computed(
+  () => !!uploadedImagePath.value || !!uploadedImageData.value || !!form.title || !!form.description
+)
 const imageUrl = computed(() => {
+  if (uploadedImageData.value) return uploadedImageData.value
   if (!uploadedImagePath.value) return ''
   return api.getUri({ url: uploadedImagePath.value })
 })
 
 function saveSessionData() {
-  sessionService.saveCoverData(form, uploadedImagePath.value)
+  sessionService.saveCoverData(form, uploadedImagePath.value, uploadedImageData.value)
 }
 
 function loadSessionData() {
@@ -151,6 +155,7 @@ function loadSessionData() {
   if (data) {
     Object.assign(form, data.form)
     uploadedImagePath.value = data.uploadedImagePath
+    uploadedImageData.value = data.uploadedImageData
     if (data.uploadedImagePath) {
       hasUploaded.value = true
     }
@@ -163,6 +168,10 @@ watch(form, () => {
 }, { deep: true })
 
 watch(uploadedImagePath, () => {
+  saveSessionData()
+})
+
+watch(uploadedImageData, () => {
   saveSessionData()
 })
 
@@ -188,6 +197,7 @@ async function uploadFile(file: File) {
   uploadError.value = ''
   try {
     validateImage(file)
+    const dataUrl = await fileToDataUrl(file)
     const formData = new FormData()
     formData.append('file', file)
     const response = await api.post('/cover/upload', formData, {
@@ -195,6 +205,7 @@ async function uploadFile(file: File) {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     uploadedImagePath.value = response.data.path
+    uploadedImageData.value = dataUrl
     hasUploaded.value = true
   } catch (error: any) {
     console.error('Upload failed', error)
@@ -215,6 +226,15 @@ function handleDrop(event: DragEvent) {
   const files = event.dataTransfer?.files
   if (!files || !files.length) return
   uploadFile(files[0])
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = () => reject(new Error('Failed to read image file.'))
+    reader.readAsDataURL(file)
+  })
 }
 
 async function openPreview() {
@@ -243,6 +263,7 @@ async function openPreview() {
       manufacturer: form.manufacturer,
       date: form.date,
       image_path: uploadedImagePath.value,
+      image_data: uploadedImageData.value,
     }
 
     const response = await api.post('/cover/preview', payload)

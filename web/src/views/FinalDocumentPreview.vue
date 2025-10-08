@@ -22,16 +22,18 @@
         >
           {{ previewLoading ? 'Generating…' : 'Generate Preview' }}
         </button>
-        <a
+        <button
           v-if="generatedDocxPath && !previewLoading && !previewError"
-          :href="downloadUrl"
-          download="Security_Target_Document.docx"
           class="btn primary"
+          type="button"
+          @click="downloadDocx"
         >
           Download DOCX
-        </a>
+        </button>
       </div>
     </div>
+
+    <p v-if="downloadError" class="download-error">{{ downloadError }}</p>
 
     <div class="card status-card">
       <header class="status-header">
@@ -117,6 +119,7 @@ const generatedDocxPath = ref<string | null>(null)
 const hasGeneratedDocx = ref(false)
 const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 const userToken = ref('')
+const downloadError = ref('')
 const sectionStatus = ref<SectionStatus[]>([
   { key: 'cover', label: 'Cover', complete: false },
   { key: 'st-reference', label: 'ST Reference', complete: false },
@@ -144,6 +147,7 @@ function hasCoverContent(data: CoverSessionData | null): boolean {
   const form = data.form || {}
   return Boolean(
     data.uploadedImagePath ||
+    data.uploadedImageData ||
     form.title ||
     form.version ||
     form.revision ||
@@ -399,6 +403,7 @@ async function generatePreview() {
             manufacturer: coverData.form.manufacturer,
             date: coverData.form.date,
             image_path: coverData.uploadedImagePath,
+            image_data: coverData.uploadedImageData,
           }
         : null,
       st_reference_html: stReferenceHTML || null,
@@ -420,6 +425,7 @@ async function generatePreview() {
 
     generatedDocxPath.value = path
     hasGeneratedDocx.value = true
+    downloadError.value = ''
     await nextTick()
     await renderDocxPreview(path)
   } catch (error: any) {
@@ -492,6 +498,51 @@ const handleBeforeUnload = () => cleanupDocx(true)
 const handlePageHide = () => cleanupDocx(true)
 
 const handleWindowFocus = () => updateSectionStatus()
+
+const downloadDocx = async () => {
+  if (!generatedDocxPath.value) {
+    return
+  }
+
+  const url = downloadUrl.value
+  if (!url) {
+    downloadError.value = 'Document is unavailable. Please generate a new preview.'
+    return
+  }
+
+  try {
+    const response = await api.get(url, { responseType: 'blob' })
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    })
+    const objectUrl = URL.createObjectURL(blob)
+    const downloadWindow = window.open('', '_blank')
+
+    if (downloadWindow) {
+      downloadWindow.document.write(
+        '<html><head><title>Downloading…</title></head><body><p>Downloading document…</p></body></html>'
+      )
+      const link = downloadWindow.document.createElement('a')
+      link.href = objectUrl
+      link.download = 'Security_Target_Document.docx'
+      downloadWindow.document.body.appendChild(link)
+      link.click()
+    } else {
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = 'Security_Target_Document.docx'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    }
+
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+    downloadError.value = ''
+  } catch (error: any) {
+    console.error('Download failed', error)
+    downloadError.value = error?.response?.data?.detail || error?.message || 'Unable to download the document.'
+  }
+}
 
 const addPreviewListeners = () => {
   if (typeof window === 'undefined') {
@@ -744,6 +795,11 @@ onBeforeUnmount(() => {
 
 .btn.primary:hover:not(:disabled) {
   background: #2563eb;
+}
+
+.download-error {
+  margin: 8px 0 0;
+  color: #f87171;
 }
 
 @media (max-width: 768px) {
