@@ -118,6 +118,7 @@ const dragActive = ref(false)
 const uploading = ref(false)
 const uploadError = ref('')
 const uploadedImagePath = ref<string | null>(null)
+const uploadedImageData = ref<string | null>(null)
 const showPreview = ref(false)
 const previewLoading = ref(false)
 const previewError = ref('')
@@ -136,14 +137,19 @@ const form = reactive({
 
 const userToken = ref('')
 
-const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !!form.description)
+const hasPreview = computed(
+  () => !!uploadedImagePath.value || !!uploadedImageData.value || !!form.title || !!form.description
+)
 const imageUrl = computed(() => {
+  if (uploadedImageData.value) {
+    return uploadedImageData.value
+  }
   if (!uploadedImagePath.value) return ''
   return api.getUri({ url: uploadedImagePath.value })
 })
 
 function saveSessionData() {
-  sessionService.saveCoverData(form, uploadedImagePath.value)
+  sessionService.saveCoverData(form, uploadedImagePath.value, uploadedImageData.value)
 }
 
 function loadSessionData() {
@@ -151,6 +157,7 @@ function loadSessionData() {
   if (data) {
     Object.assign(form, data.form)
     uploadedImagePath.value = data.uploadedImagePath
+    uploadedImageData.value = data.uploadedImageData || null
     if (data.uploadedImagePath) {
       hasUploaded.value = true
     }
@@ -163,6 +170,10 @@ watch(form, () => {
 }, { deep: true })
 
 watch(uploadedImagePath, () => {
+  saveSessionData()
+})
+
+watch(uploadedImageData, () => {
   saveSessionData()
 })
 
@@ -182,12 +193,22 @@ function validateImage(file: File) {
   }
 }
 
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve((reader.result as string) || '')
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
 async function uploadFile(file: File) {
   if (!userToken.value) return
   uploading.value = true
   uploadError.value = ''
   try {
     validateImage(file)
+    const base64 = await readFileAsDataUrl(file)
     const formData = new FormData()
     formData.append('file', file)
     const response = await api.post('/cover/upload', formData, {
@@ -195,6 +216,7 @@ async function uploadFile(file: File) {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     uploadedImagePath.value = response.data.path
+    uploadedImageData.value = base64
     hasUploaded.value = true
   } catch (error: any) {
     console.error('Upload failed', error)
@@ -307,6 +329,7 @@ function cleanupUploads(keepalive = false) {
     fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
     hasUploaded.value = false
     uploadedImagePath.value = null
+    uploadedImageData.value = null
   }
 
   cleanupDocx(keepalive)

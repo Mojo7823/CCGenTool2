@@ -13,6 +13,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -129,6 +130,8 @@ class FinalPreviewRequest(BaseModel):
     sfr_list: List[dict] = Field(default_factory=list)
     sar_list: List[dict] = Field(default_factory=list)
     selected_eal: Optional[str] = None
+    sfr_preview_html: Optional[str] = None
+    sar_preview_html: Optional[str] = None
 
 
 def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Optional[Path]:
@@ -846,9 +849,17 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     heading_run.font.bold = True
     heading.space_after = Pt(12)
 
+    intro_text = (
+        "This section presents the following information required for a Common Criteria (CC) evaluation:\n"
+        "• Identifies the Security Target (ST) and the Target of Evaluation (TOE)\n"
+        "• Specifies the security target conventions,\n"
+        "• Describes the organization of the security target"
+    )
+    intro_para = document.add_paragraph(intro_text)
+    intro_para.space_after = Pt(12)
+
     # Add ST Reference section
     if payload.st_reference_html:
-        document.add_page_break()
         st_ref_heading = document.add_paragraph()
         st_ref_run = st_ref_heading.add_run("1.1 ST Reference")
         st_ref_run.font.size = Pt(18)
@@ -859,7 +870,6 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
 
     # Page 3: Add TOE Reference section
     if payload.toe_reference_html:
-        document.add_page_break()
         toe_ref_heading = document.add_paragraph()
         toe_ref_run = toe_ref_heading.add_run("1.2 TOE Reference")
         toe_ref_run.font.size = Pt(18)
@@ -870,7 +880,6 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
 
     # Page 4: Add TOE Overview section
     if payload.toe_overview_html:
-        document.add_page_break()
         toe_overview_heading = document.add_paragraph()
         toe_overview_run = toe_overview_heading.add_run("1.3 TOE Overview")
         toe_overview_run.font.size = Pt(18)
@@ -881,7 +890,6 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
 
     # Page 5: Add TOE Description section
     if payload.toe_description_html:
-        document.add_page_break()
         toe_desc_heading = document.add_paragraph()
         toe_desc_run = toe_desc_heading.add_run("1.4 TOE Description")
         toe_desc_run.font.size = Pt(18)
@@ -902,7 +910,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         _append_html_to_document(document, payload.conformance_claims_html)
 
     # Page 7: Add Security Functional Requirements section
-    if payload.sfr_list and len(payload.sfr_list) > 0:
+    if payload.sfr_preview_html or (payload.sfr_list and len(payload.sfr_list) > 0):
         document.add_page_break()
         sfr_heading = document.add_paragraph()
         sfr_run = sfr_heading.add_run("3. Security Functional Requirements")
@@ -910,16 +918,17 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         sfr_run.font.bold = True
         sfr_heading.space_before = Pt(12)
         sfr_heading.space_after = Pt(12)
-        
-        # Add each SFR item
-        for sfr_item in payload.sfr_list:
-            if sfr_item.get('preview'):
-                _append_html_to_document(document, sfr_item['preview'])
-                # Add spacing between items
-                document.add_paragraph().space_after = Pt(12)
+
+        if payload.sfr_preview_html:
+            _append_html_to_document(document, payload.sfr_preview_html)
+        else:
+            for sfr_item in payload.sfr_list:
+                if sfr_item.get('preview'):
+                    _append_html_to_document(document, sfr_item['preview'])
+                    document.add_paragraph().space_after = Pt(12)
 
     # Page 8: Add Security Assurance Requirements section
-    if payload.sar_list and len(payload.sar_list) > 0:
+    if payload.sar_preview_html or (payload.sar_list and len(payload.sar_list) > 0):
         document.add_page_break()
         sar_heading = document.add_paragraph()
         sar_run = sar_heading.add_run("4. Security Assurance Requirements")
@@ -927,20 +936,20 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         sar_run.font.bold = True
         sar_heading.space_before = Pt(12)
         sar_heading.space_after = Pt(12)
-        
-        # Add EAL information if provided
-        if payload.selected_eal:
-            eal_para = document.add_paragraph()
-            eal_run = eal_para.add_run(f"Evaluation Assurance Level: {payload.selected_eal}")
-            eal_run.font.bold = True
-            eal_para.space_after = Pt(12)
-        
-        # Add each SAR item
-        for sar_item in payload.sar_list:
-            if sar_item.get('preview'):
-                _append_html_to_document(document, sar_item['preview'])
-                # Add spacing between items
-                document.add_paragraph().space_after = Pt(12)
+
+        if payload.sar_preview_html:
+            _append_html_to_document(document, payload.sar_preview_html)
+        else:
+            if payload.selected_eal:
+                eal_para = document.add_paragraph()
+                eal_run = eal_para.add_run(f"Evaluation Assurance Level: {payload.selected_eal}")
+                eal_run.font.bold = True
+                eal_para.space_after = Pt(12)
+
+            for sar_item in payload.sar_list:
+                if sar_item.get('preview'):
+                    _append_html_to_document(document, sar_item['preview'])
+                    document.add_paragraph().space_after = Pt(12)
 
     filename = f"{uuid.uuid4().hex}.docx"
     output_path = docx_dir / filename
@@ -1514,3 +1523,24 @@ async def cleanup_final_preview(user_id: str):
     if docx_dir.exists():
         shutil.rmtree(docx_dir)
     return {"status": "deleted"}
+
+
+@app.get("/final-preview/download/{user_id}/{filename}")
+async def download_final_preview(user_id: str, filename: str):
+    if not USER_ID_PATTERN.match(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user identifier")
+
+    safe_name = Path(filename).name
+    if safe_name != filename:
+        raise HTTPException(status_code=400, detail="Invalid file name")
+
+    docx_dir = _get_preview_docx_dir(FINAL_DOCX_ROOT, user_id, create=False)
+    file_path = docx_dir / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="Security_Target_Document.docx",
+    )

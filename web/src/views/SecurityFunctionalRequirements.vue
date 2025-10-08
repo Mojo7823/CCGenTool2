@@ -206,6 +206,12 @@ import { ref, onMounted, nextTick, computed, onBeforeUnmount } from 'vue'
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
 import { sessionService } from '../services/sessionService'
+import {
+  buildSfrPreviewHtml,
+  normalizeComponentId,
+  uppercaseIdentifiersInHtml,
+  type SfrPreviewEntry,
+} from '../utils/securityPreview'
 import RichTextEditor from '../components/RichTextEditor.vue'
 
 interface SfrClass {
@@ -313,30 +319,6 @@ const formatClassCode = (name: string) => name.replace('_db', '').toUpperCase()
 const uppercaseLeadingIdentifier = (value: string) =>
   value.replace(/^([a-z][a-z0-9_.-]*)/i, match => match.toUpperCase())
 
-const normalizeComponentId = (value: string) => value.trim().toUpperCase()
-
-const uppercaseIdentifiersInHtml = (html: string) => {
-  const transform = (text: string) =>
-    text.replace(/\b([a-z][a-z0-9_.-]*[_.][a-z0-9_.-]*)\b/gi, match => match.toUpperCase())
-
-  if (typeof window === 'undefined' || typeof document === 'undefined') {
-    return transform(html)
-  }
-
-  const container = document.createElement('div')
-  container.innerHTML = html
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
-
-  while (walker.nextNode()) {
-    const node = walker.currentNode as Text
-    if (node.nodeValue) {
-      node.nodeValue = transform(node.nodeValue)
-    }
-  }
-
-  return container.innerHTML
-}
-
 const deriveClassDescriptionFromLabel = (label: string) => {
   const colonIndex = label.indexOf(':')
   if (colonIndex !== -1) {
@@ -423,19 +405,6 @@ const parseCustomComponentInput = (input: string) => {
     name,
     display
   }
-}
-
-// Predefined template for SFR preview
-const getSfrTemplate = () => {
-  return `
-<h4>5. SECURITY REQUIREMENTS</h4>
-<p>This section defines the Security functional requirements (SFRs) and the Security assurance requirements (SARs) that fulfill the TOE. Assignment, selection, iteration and refinement operations have been made, adhering to the following conventions:</p>
-<p><strong>Assignments.</strong> They appear between square brackets. The word "assignment" is maintained and the resolution is presented in <strong><em><span style="color: #0000FF;">boldface, italic and blue color</span></em></strong>.</p>
-<p><strong>Selections.</strong> They appear between square brackets. The word "selection" is maintained and the resolution is presented in <strong><em><span style="color: #0000FF;">boldface, italic and blue color</span></em></strong>.</p>
-<p><strong>Iterations.</strong> It includes "/" and an "identifier" following requirement identifier that allows to distinguish the iterations of the requirement. Example: FCS_COP.1/XXX.</p>
-<p><strong>Refinements:</strong> the text where the refinement has been done is shown <strong><em><span style="color: #FF6B6B;">bold, italic, and light red color</span></em></strong>. Where part of the content of a SFR component has been removed, the removed text is shown in <strong><em><span style="color: #FF6B6B;"><s>bold, italic, light red color and crossed out</s></span></em></strong>.</p>
-<h4>5.1 Security Functional Requirements</h4>
-`
 }
 
 const resetAddModalState = () => {
@@ -820,55 +789,7 @@ const selectSfr = (sfrId: number) => {
 }
 
 const updatePreviewForAllSfrs = () => {
-  const template = getSfrTemplate()
-
-  if (sfrList.value.length === 0) {
-    selectedSfrPreview.value = template
-    return
-  }
-
-  const sfrsByClass: Record<string, { classDescription: string; sfrs: SfrEntry[] }> = {}
-  sfrList.value.forEach(sfr => {
-    const key = sfr.classCode || 'UNKNOWN'
-    if (!sfrsByClass[key]) {
-      sfrsByClass[key] = {
-        classDescription: getClassDescriptionForEntry(sfr),
-        sfrs: []
-      }
-    }
-    sfrsByClass[key].sfrs.push(sfr)
-  })
-
-  let allSfrSections = ''
-  let classIndex = 1
-
-  Object.keys(sfrsByClass).forEach(classCode => {
-    const classData = sfrsByClass[classCode]
-    const classDescription = classData.classDescription || classCode
-
-    allSfrSections += `
-<h5>5.1.${classIndex} ${classCode}: ${classDescription}</h5>
-`
-
-    let componentIndex = 1
-    classData.sfrs.forEach(sfr => {
-      const componentId = normalizeComponentId(sfr.componentId)
-      const componentTitle = sfr.componentName
-        ? `${componentId} : ${sfr.componentName}`
-        : componentId
-      allSfrSections += `
-<h6>5.1.${classIndex}.${componentIndex} ${componentTitle}</h6>
-<div style="margin-left: 20px;">
-${sfr.previewContent}
-</div>
-`
-      componentIndex++
-    })
-
-    classIndex++
-  })
-
-  selectedSfrPreview.value = template + allSfrSections
+  selectedSfrPreview.value = buildSfrPreviewHtml(sfrList.value as unknown as SfrPreviewEntry[])
 }
 
 const removeSFR = () => {
