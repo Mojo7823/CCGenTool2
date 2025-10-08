@@ -22,14 +22,14 @@
         >
           {{ previewLoading ? 'Generating…' : 'Generate Preview' }}
         </button>
-        <a
-          v-if="generatedDocxPath && !previewLoading && !previewError"
-          :href="downloadUrl"
-          download="Security_Target_Document.docx"
+        <button
+          v-if="generatedDocxPath && generatedDownloadPath && !previewLoading && !previewError"
           class="btn primary"
+          type="button"
+          @click="downloadDocx"
         >
           Download DOCX
-        </a>
+        </button>
       </div>
     </div>
 
@@ -114,9 +114,11 @@ interface SectionStatus {
 const previewLoading = ref(false)
 const previewError = ref('')
 const generatedDocxPath = ref<string | null>(null)
+const generatedDownloadPath = ref<string | null>(null)
 const hasGeneratedDocx = ref(false)
 const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 const userToken = ref('')
+const isDownloading = ref(false)
 const sectionStatus = ref<SectionStatus[]>([
   { key: 'cover', label: 'Cover', complete: false },
   { key: 'st-reference', label: 'ST Reference', complete: false },
@@ -135,8 +137,8 @@ const missingSections = computed(() =>
 const hasData = computed(() => sectionStatus.value.some(section => section.complete))
 
 const downloadUrl = computed(() => {
-  if (!generatedDocxPath.value) return ''
-  return api.getUri({ url: generatedDocxPath.value })
+  if (!generatedDownloadPath.value) return ''
+  return api.getUri({ url: generatedDownloadPath.value })
 })
 
 function hasCoverContent(data: CoverSessionData | null): boolean {
@@ -144,6 +146,7 @@ function hasCoverContent(data: CoverSessionData | null): boolean {
   const form = data.form || {}
   return Boolean(
     data.uploadedImagePath ||
+    data.uploadedImageData ||
     form.title ||
     form.version ||
     form.revision ||
@@ -185,13 +188,21 @@ function hasConformanceClaimsContent(data: ConformanceClaimsSessionData | null):
 }
 
 function hasSFRContent(data: SessionData | null): boolean {
-  if (!data) return false
-  return Boolean(data.sfrList && data.sfrList.length > 0)
+  if (!data || !Array.isArray(data.sfrList) || data.sfrList.length === 0) return false
+  return data.sfrList.some(item => {
+    if (!item) return false
+    const preview = typeof item.preview === 'string' ? item.preview : item.previewContent
+    return typeof preview === 'string' && preview.trim().length > 0
+  })
 }
 
 function hasSARContent(data: SarSessionData | null): boolean {
-  if (!data) return false
-  return Boolean(data.sarList && data.sarList.length > 0)
+  if (!data || !Array.isArray(data.sarList) || data.sarList.length === 0) return false
+  return data.sarList.some(item => {
+    if (!item) return false
+    const preview = typeof item.preview === 'string' ? item.preview : item.previewContent
+    return typeof preview === 'string' && preview.trim().length > 0
+  })
 }
 
 function updateSectionStatus() {
@@ -373,6 +384,7 @@ async function generatePreview() {
 
   previewError.value = ''
   previewLoading.value = true
+  isDownloading.value = false
 
   await nextTick()
   cleanupDocx()
@@ -388,6 +400,20 @@ async function generatePreview() {
     const sfrData = sessionService.loadSfrData()
     const sarData = sessionService.loadSarData()
 
+    const normalizedSfrList = (sfrData?.sfrList || []).map(item => ({
+      ...item,
+      preview: typeof item?.preview === 'string' && item.preview.trim().length > 0
+        ? item.preview
+        : (typeof item?.previewContent === 'string' ? item.previewContent : '')
+    }))
+
+    const normalizedSarList = (sarData?.sarList || []).map(item => ({
+      ...item,
+      preview: typeof item?.preview === 'string' && item.preview.trim().length > 0
+        ? item.preview
+        : (typeof item?.previewContent === 'string' ? item.previewContent : '')
+    }))
+
     const payload = {
       user_id: userToken.value,
       cover_data: coverData
@@ -399,6 +425,7 @@ async function generatePreview() {
             manufacturer: coverData.form.manufacturer,
             date: coverData.form.date,
             image_path: coverData.uploadedImagePath,
+            image_data: coverData.uploadedImageData,
           }
         : null,
       st_reference_html: stReferenceHTML || null,
@@ -406,19 +433,25 @@ async function generatePreview() {
       toe_overview_html: toeOverviewHTML || null,
       toe_description_html: toeDescriptionHTML || null,
       conformance_claims_html: conformanceClaimsHTML || null,
-      sfr_list: sfrData?.sfrList || [],
-      sar_list: sarData?.sarList || [],
+      sfr_list: normalizedSfrList,
+      sar_list: normalizedSarList,
       selected_eal: sarData?.selectedEal || null,
     }
 
     const response = await api.post('/final-preview', payload)
     const path: string | undefined = response.data?.path
+    const downloadPath: string | undefined = response.data?.download_path
 
     if (!path) {
       throw new Error('Preview generation did not return a document path.')
     }
 
+    if (!downloadPath) {
+      throw new Error('Preview generation did not return a download path.')
+    }
+
     generatedDocxPath.value = path
+    generatedDownloadPath.value = downloadPath
     hasGeneratedDocx.value = true
     await nextTick()
     await renderDocxPreview(path)
@@ -482,9 +515,14 @@ const cleanupDocx = (keepalive = false) => {
     return
   }
 
+  if (isDownloading.value) {
+    return
+  }
+
   const url = api.getUri({ url: `/final-preview/${userToken.value}` })
   fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
   generatedDocxPath.value = null
+  generatedDownloadPath.value = null
   hasGeneratedDocx.value = false
 }
 
@@ -521,6 +559,26 @@ onBeforeUnmount(() => {
   cleanupDocx()
   removePreviewListeners()
 })
+
+function downloadDocx() {
+  if (!downloadUrl.value) {
+    return
+  }
+
+  isDownloading.value = true
+  try {
+    const newWindow = window.open(downloadUrl.value, '_blank', 'noopener')
+    if (!newWindow) {
+      console.error('Pop-up blocked while attempting to download the document.')
+    }
+  } catch (error) {
+    console.error('Unable to open download window', error)
+  }
+
+  window.setTimeout(() => {
+    isDownloading.value = false
+  }, 5000)
+}
 </script>
 
 <style scoped>

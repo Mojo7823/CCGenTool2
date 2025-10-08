@@ -1,5 +1,7 @@
 import os
 import base64
+import binascii
+import hashlib
 import re
 import shutil
 import tempfile
@@ -14,6 +16,7 @@ from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -96,6 +99,7 @@ class CoverPreviewRequest(BaseModel):
     manufacturer: Optional[str] = None
     date: Optional[str] = None
     image_path: Optional[str] = Field(None, alias="image_path")
+    image_data: Optional[str] = Field(None, alias="image_data")
 
 
 class HtmlPreviewRequest(BaseModel):
@@ -131,20 +135,79 @@ class FinalPreviewRequest(BaseModel):
     selected_eal: Optional[str] = None
 
 
-def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Optional[Path]:
-    if not image_path:
-        return None
+def _store_base64_image(image_data: str, user_id: str) -> Path:
+    if not image_data:
+        raise HTTPException(status_code=400, detail="Invalid image data provided")
 
-    expected_prefix = f"/cover/uploads/{user_id}/"
-    if not image_path.startswith(expected_prefix):
-        raise HTTPException(status_code=400, detail="Invalid image reference for preview generation")
+    encoded = image_data
+    mime_type = "application/octet-stream"
 
-    filename = Path(image_path).name
-    upload_dir = get_user_upload_dir(user_id, create=False)
+    if "," in image_data:
+        header, encoded_part = image_data.split(",", 1)
+        encoded = encoded_part
+        if header.startswith("data:"):
+            mime_type = header.split(";")[0][5:]
+
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Invalid image data provided") from exc
+
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Invalid image data provided")
+
+    extension_map = {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/bmp": ".bmp",
+        "image/x-ms-bmp": ".bmp",
+    }
+
+    extension = extension_map.get(mime_type.lower(), ".png")
+    digest = hashlib.sha256(image_bytes).hexdigest()
+    upload_dir = get_user_upload_dir(user_id, create=True)
+    filename = f"{digest}{extension}"
     image_file = upload_dir / filename
+
     if not image_file.exists():
-        raise HTTPException(status_code=400, detail="Referenced cover image could not be found")
+        image_file.write_bytes(image_bytes)
+
     return image_file
+
+
+def _resolve_uploaded_image_path(
+    image_path: Optional[str],
+    user_id: str,
+    image_data: Optional[str] = None,
+) -> Optional[Path]:
+    resolved_error: Optional[HTTPException] = None
+
+    if image_path:
+        expected_prefix = f"/cover/uploads/{user_id}/"
+        if not image_path.startswith(expected_prefix):
+            resolved_error = HTTPException(
+                status_code=400,
+                detail="Invalid image reference for preview generation",
+            )
+        else:
+            filename = Path(image_path).name
+            upload_dir = get_user_upload_dir(user_id, create=False)
+            image_file = upload_dir / filename
+            if image_file.exists():
+                return image_file
+            resolved_error = HTTPException(
+                status_code=400,
+                detail="Referenced cover image could not be found",
+            )
+
+    if image_data:
+        return _store_base64_image(image_data, user_id)
+
+    if resolved_error:
+        raise resolved_error
+
+    return None
 
 
 def _format_cover_date(date_value: Optional[str]) -> str:
@@ -158,8 +221,34 @@ def _format_cover_date(date_value: Optional[str]) -> str:
         return date_value
 
 
+def _add_security_target_introduction(document: Document) -> None:
+    heading = document.add_paragraph()
+    heading_run = heading.add_run("1. Security Target Introduction")
+    heading_run.font.size = Pt(20)
+    heading_run.font.bold = True
+    heading.space_after = Pt(12)
+
+    intro_paragraph = document.add_paragraph(
+        "This section presents the following information required for a Common Criteria (CC) evaluation:"
+    )
+    intro_paragraph.space_after = Pt(6)
+
+    bullet_points = [
+        "Identifies the Security Target (ST) and the Target of Evaluation (TOE)",
+        "Specifies the security target conventions",
+        "Describes the organization of the security target",
+    ]
+
+    for point in bullet_points:
+        bullet = document.add_paragraph(point, style="List Bullet")
+        bullet.paragraph_format.left_indent = Pt(18)
+        bullet.space_after = Pt(0)
+
+    document.add_paragraph().space_after = Pt(6)
+
+
 def _build_cover_document(payload: CoverPreviewRequest) -> Path:
-    image_file = _resolve_uploaded_image_path(payload.image_path, payload.user_id)
+    image_file = _resolve_uploaded_image_path(payload.image_path, payload.user_id, payload.image_data)
     docx_dir = get_user_docx_dir(payload.user_id, create=True)
 
     # Clear previous previews for the user to avoid stale documents piling up
@@ -657,11 +746,12 @@ def _build_st_intro_combined_document(payload: STIntroPreviewRequest) -> Path:
     if payload.cover_data:
         cover_dict = payload.cover_data
         image_path = cover_dict.get("image_path")
-        
+        image_data = cover_dict.get("image_data")
+
         # Add cover image if present
-        if image_path:
+        if image_path or image_data:
             try:
-                image_file = _resolve_uploaded_image_path(image_path, payload.user_id)
+                image_file = _resolve_uploaded_image_path(image_path, payload.user_id, image_data)
                 if image_file:
                     image_paragraph = document.add_paragraph()
                     image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
@@ -704,22 +794,7 @@ def _build_st_intro_combined_document(payload: STIntroPreviewRequest) -> Path:
         # Add page break after cover
         document.add_page_break()
 
-    # Add main heading
-    heading = document.add_paragraph()
-    heading_run = heading.add_run("1. Security Target Introduction")
-    heading_run.font.size = Pt(20)
-    heading_run.font.bold = True
-    heading.space_after = Pt(12)
-    
-    # Add introduction text
-    intro_text = (
-        "This section presents the following information required for a Common Criteria (CC) evaluation:\n"
-        "• Identifies the Security Target (ST) and the Target of Evaluation (TOE)\n"
-        "• Specifies the security target conventions,\n"
-        "• Describes the organization of the security target"
-    )
-    intro_para = document.add_paragraph(intro_text)
-    intro_para.space_after = Pt(12)
+    _add_security_target_introduction(document)
 
     # Add ST Reference section
     if payload.st_reference_html:
@@ -729,8 +804,9 @@ def _build_st_intro_combined_document(payload: STIntroPreviewRequest) -> Path:
         st_ref_run.font.bold = True
         st_ref_heading.space_before = Pt(12)
         st_ref_heading.space_after = Pt(8)
-        
+
         _append_html_to_document(document, payload.st_reference_html)
+        document.add_paragraph().space_after = Pt(6)
 
     # Add TOE Reference section
     if payload.toe_reference_html:
@@ -740,8 +816,9 @@ def _build_st_intro_combined_document(payload: STIntroPreviewRequest) -> Path:
         toe_ref_run.font.bold = True
         toe_ref_heading.space_before = Pt(12)
         toe_ref_heading.space_after = Pt(8)
-        
+
         _append_html_to_document(document, payload.toe_reference_html)
+        document.add_paragraph().space_after = Pt(6)
 
     # Add TOE Overview section
     if payload.toe_overview_html:
@@ -751,8 +828,9 @@ def _build_st_intro_combined_document(payload: STIntroPreviewRequest) -> Path:
         toe_overview_run.font.bold = True
         toe_overview_heading.space_before = Pt(12)
         toe_overview_heading.space_after = Pt(8)
-        
+
         _append_html_to_document(document, payload.toe_overview_html)
+        document.add_paragraph().space_after = Pt(6)
 
     # Add TOE Description section
     if payload.toe_description_html:
@@ -762,8 +840,9 @@ def _build_st_intro_combined_document(payload: STIntroPreviewRequest) -> Path:
         toe_desc_run.font.bold = True
         toe_desc_heading.space_before = Pt(12)
         toe_desc_heading.space_after = Pt(8)
-        
+
         _append_html_to_document(document, payload.toe_description_html)
+        document.add_paragraph().space_after = Pt(6)
 
     filename = f"{uuid.uuid4().hex}.docx"
     output_path = docx_dir / filename
@@ -792,11 +871,12 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     if payload.cover_data:
         cover_dict = payload.cover_data
         image_path = cover_dict.get("image_path")
-        
+        image_data = cover_dict.get("image_data")
+
         # Add cover image if present
-        if image_path:
+        if image_path or image_data:
             try:
-                image_file = _resolve_uploaded_image_path(image_path, payload.user_id)
+                image_file = _resolve_uploaded_image_path(image_path, payload.user_id, image_data)
                 if image_file:
                     image_paragraph = document.add_paragraph()
                     image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
@@ -839,16 +919,10 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         # Add page break after cover
         document.add_page_break()
 
-    # Page 2: Add ST Introduction heading
-    heading = document.add_paragraph()
-    heading_run = heading.add_run("1. Security Target Introduction")
-    heading_run.font.size = Pt(20)
-    heading_run.font.bold = True
-    heading.space_after = Pt(12)
+    _add_security_target_introduction(document)
 
     # Add ST Reference section
     if payload.st_reference_html:
-        document.add_page_break()
         st_ref_heading = document.add_paragraph()
         st_ref_run = st_ref_heading.add_run("1.1 ST Reference")
         st_ref_run.font.size = Pt(18)
@@ -856,10 +930,10 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         st_ref_heading.space_before = Pt(12)
         st_ref_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.st_reference_html)
+        document.add_paragraph().space_after = Pt(6)
 
-    # Page 3: Add TOE Reference section
+    # Add TOE Reference section
     if payload.toe_reference_html:
-        document.add_page_break()
         toe_ref_heading = document.add_paragraph()
         toe_ref_run = toe_ref_heading.add_run("1.2 TOE Reference")
         toe_ref_run.font.size = Pt(18)
@@ -867,10 +941,10 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         toe_ref_heading.space_before = Pt(12)
         toe_ref_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_reference_html)
+        document.add_paragraph().space_after = Pt(6)
 
-    # Page 4: Add TOE Overview section
+    # Add TOE Overview section
     if payload.toe_overview_html:
-        document.add_page_break()
         toe_overview_heading = document.add_paragraph()
         toe_overview_run = toe_overview_heading.add_run("1.3 TOE Overview")
         toe_overview_run.font.size = Pt(18)
@@ -878,10 +952,10 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         toe_overview_heading.space_before = Pt(12)
         toe_overview_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_overview_html)
+        document.add_paragraph().space_after = Pt(6)
 
-    # Page 5: Add TOE Description section
+    # Add TOE Description section
     if payload.toe_description_html:
-        document.add_page_break()
         toe_desc_heading = document.add_paragraph()
         toe_desc_run = toe_desc_heading.add_run("1.4 TOE Description")
         toe_desc_run.font.size = Pt(18)
@@ -889,6 +963,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         toe_desc_heading.space_before = Pt(12)
         toe_desc_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_description_html)
+        document.add_paragraph().space_after = Pt(6)
 
     # Page 6: Add Conformance Claims section
     if payload.conformance_claims_html:
@@ -913,9 +988,9 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         
         # Add each SFR item
         for sfr_item in payload.sfr_list:
-            if sfr_item.get('preview'):
-                _append_html_to_document(document, sfr_item['preview'])
-                # Add spacing between items
+            preview_html = sfr_item.get("preview") or sfr_item.get("previewContent")
+            if preview_html:
+                _append_html_to_document(document, preview_html)
                 document.add_paragraph().space_after = Pt(12)
 
     # Page 8: Add Security Assurance Requirements section
@@ -937,9 +1012,9 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         
         # Add each SAR item
         for sar_item in payload.sar_list:
-            if sar_item.get('preview'):
-                _append_html_to_document(document, sar_item['preview'])
-                # Add spacing between items
+            preview_html = sar_item.get("preview") or sar_item.get("previewContent")
+            if preview_html:
+                _append_html_to_document(document, preview_html)
                 document.add_paragraph().space_after = Pt(12)
 
     filename = f"{uuid.uuid4().hex}.docx"
@@ -1505,7 +1580,10 @@ async def generate_final_preview(payload: FinalPreviewRequest):
         raise HTTPException(status_code=400, detail="User identifier is required")
 
     output_path = _build_final_combined_document(payload)
-    return {"path": f"/final-preview/docx/{payload.user_id}/{output_path.name}"}
+    return {
+        "path": f"/final-preview/docx/{payload.user_id}/{output_path.name}",
+        "download_path": f"/final-preview/download/{payload.user_id}/{output_path.name}",
+    }
 
 
 @app.delete("/final-preview/{user_id}")
@@ -1514,3 +1592,24 @@ async def cleanup_final_preview(user_id: str):
     if docx_dir.exists():
         shutil.rmtree(docx_dir)
     return {"status": "deleted"}
+
+
+@app.get("/final-preview/download/{user_id}/{doc_name}")
+async def download_final_preview_document(user_id: str, doc_name: str):
+    safe_name = Path(doc_name).name
+    if safe_name != doc_name:
+        raise HTTPException(status_code=400, detail="Invalid document reference")
+
+    docx_dir = _get_preview_docx_dir(FINAL_DOCX_ROOT, user_id, create=False)
+    if not docx_dir.exists():
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_path = docx_dir / safe_name
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return FileResponse(
+        file_path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="Security_Target_Document.docx",
+    )
