@@ -1,4 +1,5 @@
 import os
+import base64
 import re
 import shutil
 import tempfile
@@ -6,6 +7,7 @@ import time
 import uuid
 from datetime import datetime
 from contextlib import asynccontextmanager
+from io import BytesIO
 from pathlib import Path
 from typing import List, Optional
 
@@ -289,6 +291,10 @@ def _collect_inline_styles(element) -> dict:
     return styles
 
 
+CSS_WIDTH_RE = re.compile(r"width\s*:\s*([0-9.]+)px", re.IGNORECASE)
+CSS_HEIGHT_RE = re.compile(r"height\s*:\s*([0-9.]+)px", re.IGNORECASE)
+
+
 def _apply_styles_to_run(run, styles: dict):
     if styles.get("bold"):
         run.bold = True
@@ -317,6 +323,62 @@ def _merge_styles(parent: dict, child: dict) -> dict:
     return merged
 
 
+def _px_to_mm(px: float) -> float:
+    return px * 0.264583
+
+
+def _extract_dimension_px(element, attr_name: str) -> Optional[float]:
+    if element is None:
+        return None
+
+    style = element.get("style", "")
+    regex = CSS_WIDTH_RE if attr_name == "width" else CSS_HEIGHT_RE
+    match = regex.search(style)
+    if match:
+        try:
+            return float(match.group(1))
+        except (TypeError, ValueError):
+            pass
+
+    attr_value = element.get(attr_name)
+    if attr_value:
+        try:
+            return float(attr_value)
+        except (TypeError, ValueError):
+            pass
+
+    if attr_name == "width":
+        colwidth = element.get("data-colwidth")
+        if colwidth:
+            try:
+                parts = [float(part) for part in colwidth.split(",") if part.strip()]
+                if parts:
+                    return parts[0]
+            except (TypeError, ValueError):
+                pass
+
+    return None
+
+
+def _decode_base64_image(src: str) -> Optional[bytes]:
+    if not src:
+        return None
+
+    if src.startswith("data:image"):
+        try:
+            header, data = src.split(",", 1)
+        except ValueError:
+            return None
+        if ";base64" not in header:
+            return None
+        try:
+            return base64.b64decode(data)
+        except Exception:
+            return None
+
+    return None
+
+
 def _append_inline_content(paragraph, element, inherited_styles: Optional[dict] = None):
     styles = _collect_inline_styles(element)
     combined_styles = _merge_styles(inherited_styles or {
@@ -327,6 +389,31 @@ def _append_inline_content(paragraph, element, inherited_styles: Optional[dict] 
         "color": None,
         "size": None,
     }, styles)
+
+    tag = (element.tag or "").lower()
+
+    if tag == "img":
+        image_data = _decode_base64_image(element.get("src", ""))
+        if image_data:
+            run = paragraph.add_run()
+            _apply_styles_to_run(run, combined_styles)
+            image_stream = BytesIO(image_data)
+            width_px = _extract_dimension_px(element, "width")
+            height_px = _extract_dimension_px(element, "height")
+            kwargs = {}
+            if width_px:
+                kwargs["width"] = Mm(_px_to_mm(width_px))
+            if not kwargs and height_px:
+                kwargs["height"] = Mm(_px_to_mm(height_px))
+            try:
+                run.add_picture(image_stream, **kwargs)
+            except Exception:
+                pass
+        tail = element.tail or ""
+        if tail:
+            run = paragraph.add_run(tail.replace("\xa0", " "))
+            _apply_styles_to_run(run, combined_styles)
+        return
 
     text = element.text or ""
     if text:
@@ -447,6 +534,16 @@ def _append_block_element(document: Document, element, inherited_indent: Optiona
                 if (cell.tag or "").lower() == "th":
                     for run in paragraph.runs:
                         run.bold = True
+
+        column_widths = _extract_table_column_widths(element, max_cells)
+        for idx, width_px in enumerate(column_widths):
+            if width_px is None or idx >= len(table.columns):
+                continue
+            width_mm = _px_to_mm(width_px)
+            column_length = Mm(width_mm)
+            table.columns[idx].width = column_length
+            for row in table.rows:
+                row.cells[idx].width = column_length
         return
 
     if tag == "br":
@@ -458,6 +555,31 @@ def _append_block_element(document: Document, element, inherited_indent: Optiona
     if indent:
         paragraph.paragraph_format.left_indent = Pt(indent)
     _append_inline_content(paragraph, element)
+
+
+def _extract_table_column_widths(table_element, max_cols: int) -> List[Optional[float]]:
+    widths: List[Optional[float]] = [None] * max_cols
+
+    colgroup = table_element.find("colgroup")
+    if colgroup is not None:
+        for idx, col in enumerate(colgroup.findall("col")):
+            if idx >= max_cols:
+                break
+            width_px = _extract_dimension_px(col, "width")
+            if width_px:
+                widths[idx] = width_px
+
+    for row in table_element.findall(".//tr"):
+        cells = [cell for cell in row if (cell.tag or "").lower() in {"th", "td"}]
+        for idx, cell in enumerate(cells):
+            if idx >= max_cols:
+                break
+            if widths[idx] is None:
+                width_px = _extract_dimension_px(cell, "width")
+                if width_px:
+                    widths[idx] = width_px
+
+    return widths
 
 
 def _append_html_to_document(document: Document, html_content: str):

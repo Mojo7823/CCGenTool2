@@ -289,7 +289,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Highlight from '@tiptap/extension-highlight'
 import TextAlign from '@tiptap/extension-text-align'
-import Image from '@tiptap/extension-image'
+import ImageResize from 'tiptap-extension-resize-image'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
@@ -356,7 +356,7 @@ const editor = useEditor({
     TextStyle,
     Color.configure({ types: ['textStyle'] }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
-    Image.configure({ inline: false, allowBase64: true }),
+    ImageResize.configure({ inline: false, allowBase64: true }),
     Table.configure({ resizable: true }),
     TableRow,
     TableHeader,
@@ -678,6 +678,16 @@ onBeforeUnmount(() => {
   line-height: 1.6;
   width: 100%;
   cursor: text;
+}
+
+.editor :deep(img) {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.editor :deep([style*='cursor: pointer;']) {
+  max-width: 100%;
 }
 
 .editor :deep(p.is-editor-empty:first-child::before) {
