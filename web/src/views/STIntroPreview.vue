@@ -118,6 +118,7 @@ function hasCoverContent(data: CoverSessionData | null): boolean {
   const form = data.form || {}
   return Boolean(
     data.uploadedImagePath ||
+    data.uploadedImageDataUrl ||
     form.title ||
     form.version ||
     form.revision ||

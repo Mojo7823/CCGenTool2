@@ -788,12 +788,29 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     section.left_margin = Mm(25)
     section.right_margin = Mm(25)
 
+    has_st_reference = bool(payload.st_reference_html and payload.st_reference_html.strip())
+    has_toe_reference = bool(payload.toe_reference_html and payload.toe_reference_html.strip())
+    has_toe_overview = bool(payload.toe_overview_html and payload.toe_overview_html.strip())
+    has_toe_description = bool(payload.toe_description_html and payload.toe_description_html.strip())
+    has_conformance = bool(payload.conformance_claims_html and payload.conformance_claims_html.strip())
+
+    sfr_items = [item for item in payload.sfr_list if item.get("preview")]
+    sar_items = [item for item in payload.sar_list if item.get("preview")]
+
+    include_intro_section = bool(
+        payload.cover_data
+        or has_st_reference
+        or has_toe_reference
+        or has_toe_overview
+        or has_toe_description
+    )
+    has_security_requirements = bool(sfr_items or sar_items)
+
     # Page 1: Add cover page if provided
     if payload.cover_data:
         cover_dict = payload.cover_data
         image_path = cover_dict.get("image_path")
-        
-        # Add cover image if present
+
         if image_path:
             try:
                 image_file = _resolve_uploaded_image_path(image_path, payload.user_id)
@@ -803,10 +820,9 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
                     run = image_paragraph.add_run()
                     run.add_picture(str(image_file), width=Mm(120))
                     image_paragraph.space_after = Pt(12)
-            except:
-                pass  # Skip if image not found
-        
-        # Add cover title
+            except Exception:
+                pass
+
         title_text = cover_dict.get("title", "").strip() or "Security Target Title"
         title_paragraph = document.add_paragraph()
         title_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
@@ -814,85 +830,85 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         title_run.font.size = Pt(24)
         title_run.font.bold = True
         title_paragraph.space_after = Pt(12)
-        
-        # Add cover description
+
         if cover_dict.get("description"):
             description_paragraph = document.add_paragraph(cover_dict["description"].strip())
             description_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
             description_paragraph.space_after = Pt(18)
-        
-        # Add cover metadata
+
         info_items = [
             ("Version", cover_dict.get("version", "").strip() or "—"),
             ("Revision", cover_dict.get("revision", "").strip() or "—"),
             ("Manufacturer/Laboratory", cover_dict.get("manufacturer", "").strip() or "—"),
             ("Date", _format_cover_date(cover_dict.get("date"))),
         ]
-        
+
         for label, value in info_items:
             paragraph = document.add_paragraph()
             paragraph.space_after = Pt(6)
             run_label = paragraph.add_run(f"{label}: ")
             run_label.font.bold = True
             paragraph.add_run(value)
-        
-        # Add page break after cover
-        document.add_page_break()
 
-    # Page 2: Add ST Introduction heading
-    heading = document.add_paragraph()
-    heading_run = heading.add_run("1. Security Target Introduction")
-    heading_run.font.size = Pt(20)
-    heading_run.font.bold = True
-    heading.space_after = Pt(12)
+        if include_intro_section or has_conformance or has_security_requirements:
+            document.add_page_break()
 
-    # Add ST Reference section
-    if payload.st_reference_html:
-        document.add_page_break()
-        st_ref_heading = document.add_paragraph()
-        st_ref_run = st_ref_heading.add_run("1.1 ST Reference")
-        st_ref_run.font.size = Pt(18)
-        st_ref_run.font.bold = True
-        st_ref_heading.space_before = Pt(12)
-        st_ref_heading.space_after = Pt(8)
-        _append_html_to_document(document, payload.st_reference_html)
+    if include_intro_section:
+        heading = document.add_paragraph()
+        heading_run = heading.add_run("1. Security Target Introduction")
+        heading_run.font.size = Pt(20)
+        heading_run.font.bold = True
+        heading.space_after = Pt(12)
 
-    # Page 3: Add TOE Reference section
-    if payload.toe_reference_html:
-        document.add_page_break()
-        toe_ref_heading = document.add_paragraph()
-        toe_ref_run = toe_ref_heading.add_run("1.2 TOE Reference")
-        toe_ref_run.font.size = Pt(18)
-        toe_ref_run.font.bold = True
-        toe_ref_heading.space_before = Pt(12)
-        toe_ref_heading.space_after = Pt(8)
-        _append_html_to_document(document, payload.toe_reference_html)
+        intro_text = (
+            "This section presents the following information required for a Common Criteria (CC) evaluation:\n"
+            "• Identifies the Security Target (ST) and the Target of Evaluation (TOE)\n"
+            "• Specifies the security target conventions,\n"
+            "• Describes the organization of the security target"
+        )
+        intro_para = document.add_paragraph(intro_text)
+        intro_para.space_after = Pt(12)
 
-    # Page 4: Add TOE Overview section
-    if payload.toe_overview_html:
-        document.add_page_break()
-        toe_overview_heading = document.add_paragraph()
-        toe_overview_run = toe_overview_heading.add_run("1.3 TOE Overview")
-        toe_overview_run.font.size = Pt(18)
-        toe_overview_run.font.bold = True
-        toe_overview_heading.space_before = Pt(12)
-        toe_overview_heading.space_after = Pt(8)
-        _append_html_to_document(document, payload.toe_overview_html)
+        if has_st_reference:
+            st_ref_heading = document.add_paragraph()
+            st_ref_run = st_ref_heading.add_run("1.1 ST Reference")
+            st_ref_run.font.size = Pt(18)
+            st_ref_run.font.bold = True
+            st_ref_heading.space_before = Pt(12)
+            st_ref_heading.space_after = Pt(8)
+            _append_html_to_document(document, payload.st_reference_html)
 
-    # Page 5: Add TOE Description section
-    if payload.toe_description_html:
-        document.add_page_break()
-        toe_desc_heading = document.add_paragraph()
-        toe_desc_run = toe_desc_heading.add_run("1.4 TOE Description")
-        toe_desc_run.font.size = Pt(18)
-        toe_desc_run.font.bold = True
-        toe_desc_heading.space_before = Pt(12)
-        toe_desc_heading.space_after = Pt(8)
-        _append_html_to_document(document, payload.toe_description_html)
+        if has_toe_reference:
+            toe_ref_heading = document.add_paragraph()
+            toe_ref_run = toe_ref_heading.add_run("1.2 TOE Reference")
+            toe_ref_run.font.size = Pt(18)
+            toe_ref_run.font.bold = True
+            toe_ref_heading.space_before = Pt(12)
+            toe_ref_heading.space_after = Pt(8)
+            _append_html_to_document(document, payload.toe_reference_html)
 
-    # Page 6: Add Conformance Claims section
-    if payload.conformance_claims_html:
-        document.add_page_break()
+        if has_toe_overview:
+            toe_overview_heading = document.add_paragraph()
+            toe_overview_run = toe_overview_heading.add_run("1.3 TOE Overview")
+            toe_overview_run.font.size = Pt(18)
+            toe_overview_run.font.bold = True
+            toe_overview_heading.space_before = Pt(12)
+            toe_overview_heading.space_after = Pt(8)
+            _append_html_to_document(document, payload.toe_overview_html)
+
+        if has_toe_description:
+            toe_desc_heading = document.add_paragraph()
+            toe_desc_run = toe_desc_heading.add_run("1.4 TOE Description")
+            toe_desc_run.font.size = Pt(18)
+            toe_desc_run.font.bold = True
+            toe_desc_heading.space_before = Pt(12)
+            toe_desc_heading.space_after = Pt(8)
+            _append_html_to_document(document, payload.toe_description_html)
+
+        if has_conformance or has_security_requirements:
+            document.add_page_break()
+
+    if has_conformance:
         conf_heading = document.add_paragraph()
         conf_run = conf_heading.add_run("2. Conformance Claims")
         conf_run.font.size = Pt(20)
@@ -901,46 +917,52 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         conf_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.conformance_claims_html)
 
-    # Page 7: Add Security Functional Requirements section
-    if payload.sfr_list and len(payload.sfr_list) > 0:
-        document.add_page_break()
-        sfr_heading = document.add_paragraph()
-        sfr_run = sfr_heading.add_run("3. Security Functional Requirements")
-        sfr_run.font.size = Pt(20)
-        sfr_run.font.bold = True
-        sfr_heading.space_before = Pt(12)
-        sfr_heading.space_after = Pt(12)
-        
-        # Add each SFR item
-        for sfr_item in payload.sfr_list:
-            if sfr_item.get('preview'):
-                _append_html_to_document(document, sfr_item['preview'])
-                # Add spacing between items
-                document.add_paragraph().space_after = Pt(12)
+        if has_security_requirements:
+            document.add_page_break()
 
-    # Page 8: Add Security Assurance Requirements section
-    if payload.sar_list and len(payload.sar_list) > 0:
-        document.add_page_break()
-        sar_heading = document.add_paragraph()
-        sar_run = sar_heading.add_run("4. Security Assurance Requirements")
-        sar_run.font.size = Pt(20)
-        sar_run.font.bold = True
-        sar_heading.space_before = Pt(12)
-        sar_heading.space_after = Pt(12)
-        
-        # Add EAL information if provided
-        if payload.selected_eal:
-            eal_para = document.add_paragraph()
-            eal_run = eal_para.add_run(f"Evaluation Assurance Level: {payload.selected_eal}")
-            eal_run.font.bold = True
-            eal_para.space_after = Pt(12)
-        
-        # Add each SAR item
-        for sar_item in payload.sar_list:
-            if sar_item.get('preview'):
-                _append_html_to_document(document, sar_item['preview'])
-                # Add spacing between items
-                document.add_paragraph().space_after = Pt(12)
+    if has_security_requirements:
+        sec_heading = document.add_paragraph()
+        sec_run = sec_heading.add_run("3. Security Requirements")
+        sec_run.font.size = Pt(20)
+        sec_run.font.bold = True
+        sec_heading.space_before = Pt(12)
+        sec_heading.space_after = Pt(8)
+
+        subsection_index = 1
+
+        if sfr_items:
+            sfr_heading = document.add_paragraph()
+            sfr_run = sfr_heading.add_run(f"3.{subsection_index} Security Functional Requirements")
+            sfr_run.font.size = Pt(18)
+            sfr_run.font.bold = True
+            sfr_heading.space_before = Pt(12)
+            sfr_heading.space_after = Pt(12)
+
+            for sfr_item in sfr_items:
+                _append_html_to_document(document, sfr_item["preview"])
+                spacer = document.add_paragraph()
+                spacer.space_after = Pt(12)
+
+            subsection_index += 1
+
+        if sar_items:
+            sar_heading = document.add_paragraph()
+            sar_run = sar_heading.add_run(f"3.{subsection_index} Security Assurance Requirements")
+            sar_run.font.size = Pt(18)
+            sar_run.font.bold = True
+            sar_heading.space_before = Pt(12)
+            sar_heading.space_after = Pt(12)
+
+            if payload.selected_eal:
+                eal_para = document.add_paragraph()
+                eal_run = eal_para.add_run(f"Evaluation Assurance Level: {payload.selected_eal}")
+                eal_run.font.bold = True
+                eal_para.space_after = Pt(12)
+
+            for sar_item in sar_items:
+                _append_html_to_document(document, sar_item["preview"])
+                spacer = document.add_paragraph()
+                spacer.space_after = Pt(12)
 
     filename = f"{uuid.uuid4().hex}.docx"
     output_path = docx_dir / filename
@@ -1410,7 +1432,9 @@ async def upload_cover_image(
     with destination.open("wb") as buffer:
         buffer.write(data)
 
-    return {"path": f"/cover/uploads/{user_id}/{filename}"}
+    data_url = f"data:{file.content_type};base64,{base64.b64encode(data).decode('ascii')}"
+
+    return {"path": f"/cover/uploads/{user_id}/{filename}", "data_url": data_url}
 
 
 @app.post("/cover/preview")

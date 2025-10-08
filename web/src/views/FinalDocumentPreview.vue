@@ -22,14 +22,14 @@
         >
           {{ previewLoading ? 'Generating…' : 'Generate Preview' }}
         </button>
-        <a
+        <button
           v-if="generatedDocxPath && !previewLoading && !previewError"
-          :href="downloadUrl"
-          download="Security_Target_Document.docx"
           class="btn primary"
+          type="button"
+          @click="downloadDocx"
         >
           Download DOCX
-        </a>
+        </button>
       </div>
     </div>
 
@@ -139,11 +139,32 @@ const downloadUrl = computed(() => {
   return api.getUri({ url: generatedDocxPath.value })
 })
 
+function downloadDocx() {
+  if (!generatedDocxPath.value) {
+    return
+  }
+
+  const url = downloadUrl.value
+  if (!url) {
+    return
+  }
+
+  const link = document.createElement('a')
+  link.href = url
+  link.target = '_blank'
+  link.rel = 'noopener'
+  link.download = 'Security_Target_Document.docx'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
 function hasCoverContent(data: CoverSessionData | null): boolean {
   if (!data) return false
   const form = data.form || {}
   return Boolean(
     data.uploadedImagePath ||
+    data.uploadedImageDataUrl ||
     form.title ||
     form.version ||
     form.revision ||

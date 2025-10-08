@@ -27,6 +27,7 @@ export interface CoverSessionData {
     date: string
   }
   uploadedImagePath: string | null
+  uploadedImageDataUrl: string | null
   userToken: string
   timestamp: number
 }
@@ -309,10 +310,11 @@ class SessionService {
   /**
    * Save Cover data to session storage
    */
-  saveCoverData(form: any, uploadedImagePath: string | null): void {
+  saveCoverData(form: any, uploadedImagePath: string | null, uploadedImageDataUrl: string | null): void {
     const sessionData: CoverSessionData = {
       form,
       uploadedImagePath,
+      uploadedImageDataUrl,
       userToken: this.userToken,
       timestamp: Date.now()
     }
@@ -337,7 +339,11 @@ class SessionService {
         return null
       }
 
-      const sessionData: CoverSessionData = JSON.parse(data)
+      const sessionData = JSON.parse(data) as CoverSessionData
+
+      if (sessionData.uploadedImageDataUrl === undefined) {
+        sessionData.uploadedImageDataUrl = null
+      }
 
       if (sessionData.userToken !== this.userToken) {
         console.warn('Session token mismatch, ignoring stored Cover data')
