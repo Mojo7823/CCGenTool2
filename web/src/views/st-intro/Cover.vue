@@ -110,8 +110,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { renderAsync } from 'docx-preview'
-import api from '../services/api'
-import { sessionService } from '../services/sessionService'
+import api from '../../services/api'
+import { sessionService } from '../../services/sessionService'
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragActive = ref(false)

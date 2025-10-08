@@ -17,7 +17,7 @@
         </div>
         <div v-if="stIntroOpen" class="accordion-content">
           <ul class="menu">
-            <li><RouterLink to="/cover" active-class="active">Cover</RouterLink></li>
+            <li><RouterLink to="/st-intro/cover" active-class="active">Cover</RouterLink></li>
             <li><RouterLink to="/st-intro/reference" active-class="active">ST Reference</RouterLink></li>
             <li><RouterLink to="/st-intro/toe-reference" active-class="active">TOE Reference</RouterLink></li>
             <li><RouterLink to="/st-intro/toe-overview" active-class="active">TOE Overview</RouterLink></li>
