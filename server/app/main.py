@@ -163,7 +163,6 @@ def _format_cover_date(date_value: Optional[str]) -> str:
 
 
 def _build_cover_document(payload: CoverPreviewRequest) -> Path:
-    image_file = _resolve_uploaded_image_path(payload.image_path, payload.user_id)
     docx_dir = get_user_docx_dir(payload.user_id, create=True)
 
     # Clear previous previews for the user to avoid stale documents piling up
@@ -191,13 +190,15 @@ def _build_cover_document(payload: CoverPreviewRequest) -> Path:
                 image_stream = BytesIO(image_data)
                 run.add_picture(image_stream, width=Mm(120))
                 image_paragraph.space_after = Pt(12)
-        elif image_file:
+        else:
             # Handle file path
-            image_paragraph = document.add_paragraph()
-            image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-            run = image_paragraph.add_run()
-            run.add_picture(str(image_file), width=Mm(120))
-            image_paragraph.space_after = Pt(12)
+            image_file = _resolve_uploaded_image_path(payload.image_path, payload.user_id)
+            if image_file:
+                image_paragraph = document.add_paragraph()
+                image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                run = image_paragraph.add_run()
+                run.add_picture(str(image_file), width=Mm(120))
+                image_paragraph.space_after = Pt(12)
 
     title_text = payload.title.strip() if payload.title else "Security Target Title"
     title_paragraph = document.add_paragraph()
