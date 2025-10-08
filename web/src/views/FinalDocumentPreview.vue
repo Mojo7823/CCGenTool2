@@ -25,6 +25,7 @@
         <a
           v-if="generatedDocxPath && !previewLoading && !previewError"
           :href="downloadUrl"
+          target="_blank"
           download="Security_Target_Document.docx"
           class="btn primary"
         >
@@ -399,6 +400,7 @@ async function generatePreview() {
             manufacturer: coverData.form.manufacturer,
             date: coverData.form.date,
             image_path: coverData.uploadedImagePath,
+            image_base64: coverData.uploadedImageBase64,
           }
         : null,
       st_reference_html: stReferenceHTML || null,
