@@ -960,8 +960,9 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         
         # Add each SFR item with its preview content
         for sfr_item in payload.sfr_list:
-            if sfr_item.get('preview'):
-                _append_html_to_document(document, sfr_item['preview'])
+            preview_html = sfr_item.get('previewContent') or sfr_item.get('preview')
+            if preview_html:
+                _append_html_to_document(document, preview_html)
                 # Add spacing between items
                 document.add_paragraph().space_after = Pt(12)
 
@@ -983,8 +984,9 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         
         # Add each SAR item with its preview content
         for sar_item in payload.sar_list:
-            if sar_item.get('preview'):
-                _append_html_to_document(document, sar_item['preview'])
+            preview_html = sar_item.get('previewContent') or sar_item.get('preview')
+            if preview_html:
+                _append_html_to_document(document, preview_html)
                 # Add spacing between items
                 document.add_paragraph().space_after = Pt(12)
 
