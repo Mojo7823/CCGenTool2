@@ -127,28 +127,7 @@
 
         <div class="form-group">
           <label for="sarPreview">SAR Preview:</label>
-          <div class="wysiwyg-toolbar">
-            <button type="button" class="btn" @click="formatText('bold', 'standard')"><strong>B</strong></button>
-            <button type="button" class="btn" @click="formatText('italic', 'standard')"><em>I</em></button>
-            <button type="button" class="btn" @click="formatText('underline', 'standard')"><u>U</u></button>
-            <button type="button" class="btn color-btn" @click="toggleColorPicker('standard')">🎨</button>
-            <div v-if="showColorPicker" class="color-picker">
-              <button type="button" class="color-option" style="background-color: #000000" @click="applyColor('#000000', 'standard')" title="Black"></button>
-              <button type="button" class="color-option" style="background-color: #FF0000" @click="applyColor('#FF0000', 'standard')" title="Red"></button>
-              <button type="button" class="color-option" style="background-color: #00FF00" @click="applyColor('#00FF00', 'standard')" title="Green"></button>
-              <button type="button" class="color-option" style="background-color: #0000FF" @click="applyColor('#0000FF', 'standard')" title="Blue"></button>
-              <button type="button" class="color-option" style="background-color: #FFA500" @click="applyColor('#FFA500', 'standard')" title="Orange"></button>
-              <button type="button" class="color-option" style="background-color: #800080" @click="applyColor('#800080', 'standard')" title="Purple"></button>
-              <button type="button" class="color-option" style="background-color: #008080" @click="applyColor('#008080', 'standard')" title="Teal"></button>
-              <button type="button" class="color-option" style="background-color: #FFD700" @click="applyColor('#FFD700', 'standard')" title="Gold"></button>
-            </div>
-          </div>
-          <div 
-            ref="previewEditor"
-            class="preview-editor" 
-            contenteditable="true"
-            @input="onPreviewInput"
-          ></div>
+          <RichTextEditor v-model="previewContent" placeholder="Compose the SAR details" min-height="240px" />
         </div>
 
         <div class="modal-actions">
@@ -189,28 +168,11 @@
 
         <div class="form-group">
           <label for="customSarPreview">SAR Items and Description:</label>
-          <div class="wysiwyg-toolbar">
-            <button type="button" class="btn" @click="formatText('bold', 'custom')"><strong>B</strong></button>
-            <button type="button" class="btn" @click="formatText('italic', 'custom')"><em>I</em></button>
-            <button type="button" class="btn" @click="formatText('underline', 'custom')"><u>U</u></button>
-            <button type="button" class="btn color-btn" @click="toggleColorPicker('custom')">🎨</button>
-            <div v-if="showCustomColorPicker" class="color-picker">
-              <button type="button" class="color-option" style="background-color: #000000" @click="applyColor('#000000', 'custom')" title="Black"></button>
-              <button type="button" class="color-option" style="background-color: #FF0000" @click="applyColor('#FF0000', 'custom')" title="Red"></button>
-              <button type="button" class="color-option" style="background-color: #00FF00" @click="applyColor('#00FF00', 'custom')" title="Green"></button>
-              <button type="button" class="color-option" style="background-color: #0000FF" @click="applyColor('#0000FF', 'custom')" title="Blue"></button>
-              <button type="button" class="color-option" style="background-color: #FFA500" @click="applyColor('#FFA500', 'custom')" title="Orange"></button>
-              <button type="button" class="color-option" style="background-color: #800080" @click="applyColor('#800080', 'custom')" title="Purple"></button>
-              <button type="button" class="color-option" style="background-color: #008080" @click="applyColor('#008080', 'custom')" title="Teal"></button>
-              <button type="button" class="color-option" style="background-color: #FFD700" @click="applyColor('#FFD700', 'custom')" title="Gold"></button>
-            </div>
-          </div>
-          <div
-            ref="customPreviewEditor"
-            class="preview-editor"
-            contenteditable="true"
-            @input="onCustomPreviewInput"
-          ></div>
+          <RichTextEditor
+            v-model="customPreviewContent"
+            placeholder="Describe the custom SAR details"
+            min-height="240px"
+          />
         </div>
 
         <div class="modal-actions">
@@ -252,6 +214,7 @@ import { ref, onMounted, nextTick, watch, computed, onBeforeUnmount } from 'vue'
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
 import { sessionService } from '../services/sessionService'
+import RichTextEditor from '../components/RichTextEditor.vue'
 
 interface SarClass {
   name: string
@@ -388,12 +351,6 @@ const customPreviewContent = ref('')
 const sarClasses = ref<SarClass[]>([])
 const components = ref<ComponentRecord[]>([])
 const uniqueComponents = ref<ComponentOption[]>([])
-
-// Editors
-const previewEditor = ref<HTMLDivElement | null>(null)
-const customPreviewEditor = ref<HTMLDivElement | null>(null)
-const showColorPicker = ref(false)
-const showCustomColorPicker = ref(false)
 
 // Search functionality
 const searchQuery = ref('')
@@ -648,23 +605,13 @@ const resetAddModalState = () => {
   filteredSarClasses.value = [...sarClasses.value]
   highlightedClassIndex.value = 0
   searchDropdownVisible.value = false
-  showColorPicker.value = false
   shouldResetSearch.value = false
-
-  if (previewEditor.value) {
-    previewEditor.value.innerHTML = ''
-  }
 }
 
 const resetCustomModalState = () => {
   customClassInput.value = ''
   customComponentInput.value = ''
   customPreviewContent.value = ''
-  showCustomColorPicker.value = false
-
-  if (customPreviewEditor.value) {
-    customPreviewEditor.value.innerHTML = ''
-  }
 }
 
 const openAddModal = async () => {
@@ -815,12 +762,9 @@ const onClassChange = async (options: { preservePreview?: boolean } = {}) => {
     return
   }
 
-    if (!preservePreview) {
-      selectedComponent.value = ''
-      previewContent.value = ''
-      if (previewEditor.value) {
-        previewEditor.value.innerHTML = ''
-    }
+  if (!preservePreview) {
+    selectedComponent.value = ''
+    previewContent.value = ''
   }
 
   try {
@@ -852,9 +796,6 @@ const onClassChange = async (options: { preservePreview?: boolean } = {}) => {
 const onComponentChange = async () => {
   if (!selectedComponent.value) {
     previewContent.value = ''
-    if (previewEditor.value) {
-      previewEditor.value.innerHTML = ''
-    }
     return
   }
 
@@ -884,54 +825,8 @@ const onComponentChange = async () => {
     const sanitizedContent = uppercaseIdentifiersInHtml(content)
     previewContent.value = sanitizedContent
 
-    if (previewEditor.value) {
-      previewEditor.value.innerHTML = sanitizedContent
-    }
   } catch (error) {
     console.error('Error building preview:', error)
-  }
-}
-
-const onPreviewInput = (event: Event) => {
-  const target = event.target as HTMLDivElement
-  previewContent.value = target.innerHTML
-}
-
-const onCustomPreviewInput = (event: Event) => {
-  const target = event.target as HTMLDivElement
-  customPreviewContent.value = target.innerHTML
-}
-
-const formatText = (command: string, target: 'standard' | 'custom' = 'standard') => {
-  const editor = target === 'standard' ? previewEditor.value : customPreviewEditor.value
-  if (!editor) return
-  editor.focus()
-  document.execCommand(command, false, null)
-}
-
-const applyColor = (color: string, target: 'standard' | 'custom' = 'standard') => {
-  const editor = target === 'standard' ? previewEditor.value : customPreviewEditor.value
-  if (!editor) return
-  editor.focus()
-  document.execCommand('foreColor', false, color)
-  if (target === 'standard') {
-    showColorPicker.value = false
-  } else {
-    showCustomColorPicker.value = false
-  }
-}
-
-const toggleColorPicker = (target: 'standard' | 'custom') => {
-  if (target === 'standard') {
-    showColorPicker.value = !showColorPicker.value
-    if (showColorPicker.value) {
-      showCustomColorPicker.value = false
-    }
-  } else {
-    showCustomColorPicker.value = !showCustomColorPicker.value
-    if (showCustomColorPicker.value) {
-      showColorPicker.value = false
-    }
   }
 }
 
@@ -966,9 +861,6 @@ const finalizeSAR = async () => {
   const sanitizedPreview = uppercaseIdentifiersInHtml(previewContent.value)
   if (sanitizedPreview !== previewContent.value) {
     previewContent.value = sanitizedPreview
-    if (previewEditor.value) {
-      previewEditor.value.innerHTML = sanitizedPreview
-    }
   }
 
   const entry: SarEntry = {
@@ -1028,9 +920,6 @@ const finalizeCustomSAR = () => {
   const sanitizedPreview = uppercaseIdentifiersInHtml(customPreviewContent.value)
   if (sanitizedPreview !== customPreviewContent.value) {
     customPreviewContent.value = sanitizedPreview
-    if (customPreviewEditor.value) {
-      customPreviewEditor.value.innerHTML = sanitizedPreview
-    }
   }
 
   const entry: SarEntry = {
@@ -1342,11 +1231,6 @@ const editSelectedSar = async () => {
     selectedComponent.value = sar.componentKey || sar.componentId
     filteredUniqueComponents.value = [...uniqueComponents.value]
     previewContent.value = sar.previewContent
-    await nextTick()
-    if (previewEditor.value) {
-      previewEditor.value.innerHTML = sar.previewContent
-      previewEditor.value.focus()
-    }
     searchDropdownVisible.value = false
   } else {
     resetCustomModalState()
@@ -1357,11 +1241,6 @@ const editSelectedSar = async () => {
     customPreviewContent.value = sar.previewContent
 
     showCustomModal.value = true
-    await nextTick()
-    if (customPreviewEditor.value) {
-      customPreviewEditor.value.innerHTML = sar.previewContent
-      customPreviewEditor.value.focus()
-    }
   }
 }
 
@@ -1375,14 +1254,7 @@ watch(selectedEal, () => {
 
 watch(showAddModal, value => {
   if (!value) {
-    showColorPicker.value = false
     searchDropdownVisible.value = false
-  }
-})
-
-watch(showCustomModal, value => {
-  if (!value) {
-    showCustomColorPicker.value = false
   }
 })
 
@@ -1722,99 +1594,6 @@ onBeforeUnmount(() => {
 .form-group select,
 .form-group input {
   width: 100%;
-}
-
-.wysiwyg-toolbar {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 8px;
-  padding: 8px;
-  background: var(--bg-soft);
-  border: 1px solid #374151;
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  position: relative;
-}
-
-.wysiwyg-toolbar .btn {
-  padding: 4px 8px;
-  font-size: 12px;
-}
-
-.color-btn {
-  position: relative;
-}
-
-.color-picker {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 1000;
-  background: var(--panel);
-  border: 1px solid #374151;
-  border-radius: 4px;
-  padding: 8px;
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-  width: 120px;
-}
-
-.color-option {
-  width: 20px;
-  height: 20px;
-  border: 1px solid #374151;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: transform 0.2s;
-}
-
-.color-option:hover {
-  transform: scale(1.1);
-}
-
-.preview-editor {
-  width: 100%;
-  min-height: 200px;
-  padding: 12px;
-  background: var(--bg);
-  border: 1px solid #374151;
-  border-radius: 0 0 8px 8px;
-  color: var(--text);
-  outline: none;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.preview-editor:focus {
-  border-color: var(--primary);
-}
-
-/* Ensure consistent typography in editor content */
-.preview-editor h1, .preview-editor h2, .preview-editor h3, 
-.preview-editor h4, .preview-editor h5, .preview-editor h6 {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-weight: 600;
-  color: var(--text-bright);
-}
-
-.preview-editor p {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-size: 13px;
-  line-height: 1.6;
-  margin-bottom: 12px;
-}
-
-.preview-editor strong {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-weight: 600;
-  color: var(--text-bright);
-}
-
-.preview-editor em {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  font-style: italic;
 }
 
 .modal-actions {
