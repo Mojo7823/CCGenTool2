@@ -108,9 +108,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
+import { sessionService } from '../services/sessionService'
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragActive = ref(false)
@@ -155,6 +156,30 @@ function ensureUserId() {
   userId.value = generated
   window.localStorage.setItem(storageKey, generated)
 }
+
+function saveSessionData() {
+  sessionService.saveCoverData(form, uploadedImagePath.value)
+}
+
+function loadSessionData() {
+  const data = sessionService.loadCoverData()
+  if (data) {
+    Object.assign(form, data.form)
+    uploadedImagePath.value = data.uploadedImagePath
+    if (data.uploadedImagePath) {
+      hasUploaded.value = true
+    }
+  }
+}
+
+// Watch form changes and save to session
+watch(form, () => {
+  saveSessionData()
+}, { deep: true })
+
+watch(uploadedImagePath, () => {
+  saveSessionData()
+})
 
 function triggerFileDialog() {
   fileInput.value?.click()
@@ -314,15 +339,18 @@ function cleanupDocx(keepalive = false) {
 }
 
 function handleBeforeUnload() {
-  cleanupUploads(true)
+  // Don't cleanup uploads on page navigation, only on session exit
+  saveSessionData()
 }
 
 function handlePageHide() {
-  cleanupUploads(true)
+  // Don't cleanup uploads on page navigation, only on session exit
+  saveSessionData()
 }
 
 onMounted(() => {
   ensureUserId()
+  loadSessionData()
   if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', handleBeforeUnload)
     window.addEventListener('pagehide', handlePageHide)
@@ -330,7 +358,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  cleanupUploads()
+  // Don't cleanup on unmount since we're persisting data
+  saveSessionData()
   removeEventListeners()
 })
 </script>
