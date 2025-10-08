@@ -22,14 +22,14 @@
         >
           {{ previewLoading ? 'Generating…' : 'Generate Preview' }}
         </button>
-        <a
+        <button
           v-if="generatedDocxPath && !previewLoading && !previewError"
-          :href="downloadUrl"
-          download="Security_Target_Document.docx"
+          type="button"
           class="btn primary"
+          @click="downloadDocx"
         >
           Download DOCX
-        </a>
+        </button>
       </div>
     </div>
 
@@ -134,9 +134,15 @@ const missingSections = computed(() =>
 
 const hasData = computed(() => sectionStatus.value.some(section => section.complete))
 
-const downloadUrl = computed(() => {
+const downloadFilename = computed(() => {
   if (!generatedDocxPath.value) return ''
-  return api.getUri({ url: generatedDocxPath.value })
+  const segments = generatedDocxPath.value.split('/')
+  return segments[segments.length - 1] || ''
+})
+
+const downloadUrl = computed(() => {
+  if (!downloadFilename.value || !userToken.value) return ''
+  return api.getUri({ url: `/final-preview/download/${userToken.value}/${downloadFilename.value}` })
 })
 
 function hasCoverContent(data: CoverSessionData | null): boolean {
@@ -144,6 +150,7 @@ function hasCoverContent(data: CoverSessionData | null): boolean {
   const form = data.form || {}
   return Boolean(
     data.uploadedImagePath ||
+    data.uploadedImageData ||
     form.title ||
     form.version ||
     form.revision ||
@@ -399,6 +406,7 @@ async function generatePreview() {
             manufacturer: coverData.form.manufacturer,
             date: coverData.form.date,
             image_path: coverData.uploadedImagePath,
+            image_data: coverData.uploadedImageData,
           }
         : null,
       st_reference_html: stReferenceHTML || null,
@@ -449,6 +457,20 @@ async function renderDocxPreview(path: string) {
     previewError.value = message
     hasGeneratedDocx.value = false
   }
+}
+
+function downloadDocx() {
+  const url = downloadUrl.value
+  if (!url) return
+
+  const link = document.createElement('a')
+  link.href = url
+  link.target = '_blank'
+  link.rel = 'noopener'
+  link.download = 'Security_Target_Document.docx'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }
 
 function saveProjectAsJSON() {

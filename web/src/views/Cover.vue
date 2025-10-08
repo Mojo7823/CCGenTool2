@@ -118,6 +118,7 @@ const dragActive = ref(false)
 const uploading = ref(false)
 const uploadError = ref('')
 const uploadedImagePath = ref<string | null>(null)
+const uploadedImageData = ref<string | null>(null)
 const showPreview = ref(false)
 const previewLoading = ref(false)
 const previewError = ref('')
@@ -136,14 +137,19 @@ const form = reactive({
 
 const userToken = ref('')
 
-const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !!form.description)
+const hasPreview = computed(
+  () => !!uploadedImagePath.value || !!uploadedImageData.value || !!form.title || !!form.description
+)
 const imageUrl = computed(() => {
+  if (uploadedImageData.value) {
+    return uploadedImageData.value
+  }
   if (!uploadedImagePath.value) return ''
   return api.getUri({ url: uploadedImagePath.value })
 })
 
 function saveSessionData() {
-  sessionService.saveCoverData(form, uploadedImagePath.value)
+  sessionService.saveCoverData(form, uploadedImagePath.value, uploadedImageData.value)
 }
 
 function loadSessionData() {
@@ -151,6 +157,7 @@ function loadSessionData() {
   if (data) {
     Object.assign(form, data.form)
     uploadedImagePath.value = data.uploadedImagePath
+    uploadedImageData.value = data.uploadedImageData
     if (data.uploadedImagePath) {
       hasUploaded.value = true
     }
@@ -162,9 +169,19 @@ watch(form, () => {
   saveSessionData()
 }, { deep: true })
 
-watch(uploadedImagePath, () => {
-  saveSessionData()
-})
+watch(
+  uploadedImagePath,
+  () => {
+    saveSessionData()
+  }
+)
+
+watch(
+  uploadedImageData,
+  () => {
+    saveSessionData()
+  }
+)
 
 function triggerFileDialog() {
   fileInput.value?.click()
@@ -196,12 +213,27 @@ async function uploadFile(file: File) {
     })
     uploadedImagePath.value = response.data.path
     hasUploaded.value = true
+    try {
+      uploadedImageData.value = await readFileAsDataUrl(file)
+    } catch (conversionError) {
+      console.warn('Unable to convert image to base64', conversionError)
+      uploadedImageData.value = null
+    }
   } catch (error: any) {
     console.error('Upload failed', error)
     resetUploadState(error?.response?.data?.detail || error?.message || 'Failed to upload image.')
     return
   }
   resetUploadState()
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
 }
 
 function handleFileSelection(event: Event) {
