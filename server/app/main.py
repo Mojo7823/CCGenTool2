@@ -55,6 +55,8 @@ SAR_DOCX_ROOT = Path(os.getenv("SAR_DOCX_DIR", Path(tempfile.gettempdir()) / "cc
 SAR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 ST_INTRO_DOCX_ROOT = Path(os.getenv("ST_INTRO_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_stintro_docx"))
 ST_INTRO_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+FINAL_DOCX_ROOT = Path(os.getenv("FINAL_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_final_docx"))
+FINAL_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -112,6 +114,22 @@ class STIntroPreviewRequest(BaseModel):
     toe_reference_html: Optional[str] = None
     toe_overview_html: Optional[str] = None
     toe_description_html: Optional[str] = None
+
+
+class FinalDocumentPreviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    user_id: str = Field(..., alias="user_id")
+    cover_data: Optional[dict] = None
+    st_reference_html: Optional[str] = None
+    toe_reference_html: Optional[str] = None
+    toe_overview_html: Optional[str] = None
+    toe_description_html: Optional[str] = None
+    cc_conformance_html: Optional[str] = None
+    pp_claims_html: Optional[str] = None
+    additional_notes_html: Optional[str] = None
+    sfr_html: Optional[str] = None
+    sar_html: Optional[str] = None
 
 
 def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Optional[Path]:
@@ -753,6 +771,97 @@ def _build_st_intro_combined_document(payload: STIntroPreviewRequest) -> Path:
     document.save(str(output_path))
     return output_path
 
+
+def _build_final_document(payload: FinalDocumentPreviewRequest) -> Path:
+    """Build the final Security Target document by combining all sections with page breaks."""
+    docx_dir = _get_preview_docx_dir(FINAL_DOCX_ROOT, payload.user_id, create=True)
+
+    for existing in docx_dir.glob("*.docx"):
+        existing.unlink(missing_ok=True)
+
+    document = Document()
+    section = document.sections[0]
+    section.page_height = Mm(297)
+    section.page_width = Mm(210)
+    section.top_margin = Mm(20)
+    section.bottom_margin = Mm(20)
+    section.left_margin = Mm(25)
+    section.right_margin = Mm(25)
+
+    section_started = False
+
+    if payload.cover_data:
+        cover_dict = payload.cover_data
+        image_path = cover_dict.get("image_path")
+
+        if image_path:
+            try:
+                image_file = _resolve_uploaded_image_path(image_path, payload.user_id)
+                if image_file:
+                    image_paragraph = document.add_paragraph()
+                    image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                    run = image_paragraph.add_run()
+                    run.add_picture(str(image_file), width=Mm(120))
+                    image_paragraph.space_after = Pt(12)
+            except HTTPException:
+                pass
+
+        title_text = cover_dict.get("title", "").strip() or "Security Target Title"
+        title_paragraph = document.add_paragraph()
+        title_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        title_run = title_paragraph.add_run(title_text)
+        title_run.font.size = Pt(24)
+        title_run.font.bold = True
+        title_paragraph.space_after = Pt(12)
+
+        if cover_dict.get("description"):
+            description_paragraph = document.add_paragraph(cover_dict["description"].strip())
+            description_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+            description_paragraph.space_after = Pt(18)
+
+        info_items = [
+            ("Version", cover_dict.get("version", "").strip() or "—"),
+            ("Revision", cover_dict.get("revision", "").strip() or "—"),
+            ("Manufacturer/Laboratory", cover_dict.get("manufacturer", "").strip() or "—"),
+            ("Date", _format_cover_date(cover_dict.get("date"))),
+        ]
+
+        for label, value in info_items:
+            paragraph = document.add_paragraph()
+            paragraph.space_after = Pt(6)
+            run_label = paragraph.add_run(f"{label}: ")
+            run_label.font.bold = True
+            paragraph.add_run(value)
+
+        section_started = True
+
+    html_sections = [
+        payload.st_reference_html,
+        payload.toe_reference_html,
+        payload.toe_overview_html,
+        payload.toe_description_html,
+        payload.cc_conformance_html,
+        payload.pp_claims_html,
+        payload.additional_notes_html,
+        payload.sfr_html,
+        payload.sar_html,
+    ]
+
+    for html_content in html_sections:
+        if not html_content or not html_content.strip():
+            continue
+
+        if section_started:
+            document.add_page_break()
+
+        _append_html_to_document(document, html_content)
+        section_started = True
+
+    filename = f"{uuid.uuid4().hex}.docx"
+    output_path = docx_dir / filename
+    document.save(str(output_path))
+    return output_path
+
 # CORS configuration: prefer regex if provided to allow any LAN IP on port 5173
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 origin_regex = os.getenv(
@@ -784,6 +893,7 @@ app.mount("/cover/docx", StaticFiles(directory=str(COVER_DOCX_ROOT)), name="cove
 app.mount("/security/sfr/docx", StaticFiles(directory=str(SFR_DOCX_ROOT)), name="sfr-docx")
 app.mount("/security/sar/docx", StaticFiles(directory=str(SAR_DOCX_ROOT)), name="sar-docx")
 app.mount("/st-intro/docx", StaticFiles(directory=str(ST_INTRO_DOCX_ROOT)), name="st-intro-docx")
+app.mount("/final-document/docx", StaticFiles(directory=str(FINAL_DOCX_ROOT)), name="final-docx")
 
 
 @app.get("/health")
@@ -1257,6 +1367,15 @@ async def generate_st_intro_preview(payload: STIntroPreviewRequest):
     return {"path": f"/st-intro/docx/{payload.user_id}/{output_path.name}"}
 
 
+@app.post("/final-document/preview")
+async def generate_final_document_preview(payload: FinalDocumentPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_final_document(payload)
+    return {"path": f"/final-document/docx/{payload.user_id}/{output_path.name}"}
+
+
 @app.delete("/cover/upload/{user_id}")
 async def cleanup_cover_images(user_id: str):
     """Delete all temporary cover images associated with a user session."""
@@ -1299,6 +1418,14 @@ async def cleanup_sar_preview(user_id: str):
 @app.delete("/st-intro/preview/{user_id}")
 async def cleanup_st_intro_preview(user_id: str):
     docx_dir = _get_preview_docx_dir(ST_INTRO_DOCX_ROOT, user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.delete("/final-document/preview/{user_id}")
+async def cleanup_final_document_preview(user_id: str):
+    docx_dir = _get_preview_docx_dir(FINAL_DOCX_ROOT, user_id, create=False)
     if docx_dir.exists():
         shutil.rmtree(docx_dir)
     return {"status": "deleted"}

@@ -67,6 +67,14 @@ export interface TOEDescriptionSessionData {
   timestamp: number
 }
 
+export interface ConformanceClaimsSessionData {
+  ccConformance: string
+  ppClaims: string
+  additionalNotes: string
+  userToken: string
+  timestamp: number
+}
+
 class SessionService {
   private readonly STORAGE_KEY = 'ccgentool2_session'
   private readonly SAR_STORAGE_KEY = 'ccgentool2_sar_session'
@@ -75,6 +83,7 @@ class SessionService {
   private readonly TOE_REF_STORAGE_KEY = 'ccgentool2_toeref_session'
   private readonly TOE_OVERVIEW_STORAGE_KEY = 'ccgentool2_toeoverview_session'
   private readonly TOE_DESC_STORAGE_KEY = 'ccgentool2_toedesc_session'
+  private readonly CONFORMANCE_STORAGE_KEY = 'ccgentool2_conformance_session'
   private readonly TOKEN_KEY = 'ccgentool2_user_token'
   private userToken: string
 
@@ -398,6 +407,15 @@ class SessionService {
     }
   }
 
+  clearSTReferenceData(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.ST_REF_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing ST Reference data from session:', error)
+    }
+  }
+
   /**
    * Save TOE Reference data to session storage
    */
@@ -442,6 +460,15 @@ class SessionService {
     }
   }
 
+  clearTOEReferenceData(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.TOE_REF_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing TOE Reference data from session:', error)
+    }
+  }
+
   /**
    * Save TOE Overview data to session storage
    */
@@ -483,6 +510,15 @@ class SessionService {
     } catch (error) {
       console.error('Error loading TOE Overview data from session:', error)
       return null
+    }
+  }
+
+  clearTOEOverviewData(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.TOE_OVERVIEW_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing TOE Overview data from session:', error)
     }
   }
 
@@ -532,6 +568,77 @@ class SessionService {
       console.error('Error loading TOE Description data from session:', error)
       return null
     }
+  }
+
+  clearTOEDescriptionData(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.TOE_DESC_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing TOE Description data from session:', error)
+    }
+  }
+
+  saveConformanceClaimsData(data: Omit<ConformanceClaimsSessionData, 'userToken' | 'timestamp'>): void {
+    const sessionData: ConformanceClaimsSessionData = {
+      ...data,
+      userToken: this.userToken,
+      timestamp: Date.now(),
+    }
+
+    try {
+      const storageKey = this.getNamespacedKey(this.CONFORMANCE_STORAGE_KEY)
+      localStorage.setItem(storageKey, JSON.stringify(sessionData))
+    } catch (error) {
+      console.error('Error saving Conformance Claims data to session:', error)
+    }
+  }
+
+  loadConformanceClaimsData(): ConformanceClaimsSessionData | null {
+    try {
+      const storageKey = this.getNamespacedKey(this.CONFORMANCE_STORAGE_KEY)
+      const data = localStorage.getItem(storageKey)
+
+      if (!data) {
+        return null
+      }
+
+      const sessionData: ConformanceClaimsSessionData = JSON.parse(data)
+
+      if (sessionData.userToken !== this.userToken) {
+        console.warn('Session token mismatch, ignoring stored Conformance Claims data')
+        return null
+      }
+
+      sessionData.ccConformance = sessionData.ccConformance || ''
+      sessionData.ppClaims = sessionData.ppClaims || ''
+      sessionData.additionalNotes = sessionData.additionalNotes || ''
+
+      return sessionData
+    } catch (error) {
+      console.error('Error loading Conformance Claims data from session:', error)
+      return null
+    }
+  }
+
+  clearConformanceClaimsData(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.CONFORMANCE_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing Conformance Claims data from session:', error)
+    }
+  }
+
+  clearAllSessionData(): void {
+    this.clearCoverData()
+    this.clearSTReferenceData()
+    this.clearTOEReferenceData()
+    this.clearTOEOverviewData()
+    this.clearTOEDescriptionData()
+    this.clearConformanceClaimsData()
+    this.clearSfrData()
+    this.clearSarData()
   }
 }
 
