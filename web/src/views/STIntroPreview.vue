@@ -3,7 +3,7 @@
     <div class="card st-intro-preview-menubar">
       <div class="st-intro-preview-menubar-left">
         <h1>ST Introduction Preview</h1>
-        <span class="menubar-subtitle">Preview and download the complete ST Introduction document</span>
+        <span class="menubar-subtitle">Preview all the ST Introduction section</span>
       </div>
       <button
         class="btn primary"
@@ -11,42 +11,59 @@
         @click="generatePreview"
         :disabled="previewLoading || !hasData"
       >
-        Generate Preview
+        {{ previewLoading ? 'Generating…' : 'Generate Preview' }}
       </button>
     </div>
 
-    <div v-if="!showPreview && !hasData" class="card info-message">
-      <p>Please fill in at least one section (Cover, ST Reference, TOE Reference, TOE Overview, or TOE Description) to generate a preview.</p>
+    <div class="card status-card">
+      <header class="status-header">
+        <h2>Section status</h2>
+        <p class="status-subtitle">Review the completion state for each ST Introduction section</p>
+      </header>
+      <ul class="status-list">
+        <li v-for="section in sectionStatus" :key="section.key">
+          <span class="status-label">{{ section.label }}</span>
+          <span :class="['status-indicator', section.complete ? 'completed' : 'missing']">
+            {{ section.complete ? 'Completed' : 'Missing' }}
+          </span>
+        </li>
+      </ul>
+      <div v-if="missingSections.length" class="status-warning">
+        Please complete the following sections before generating the final document:
+        <span>{{ missingSections.join(', ') }}</span>
+      </div>
+      <div v-else class="status-success">All sections are complete.</div>
     </div>
 
-    <div v-if="showPreview" class="modal-overlay" @click.self="closePreview">
-      <div class="modal-card docx-modal">
-        <header class="modal-header">
+    <div class="card preview-card">
+      <header class="preview-header">
+        <div>
           <h2>ST Introduction Preview</h2>
-          <button class="modal-close" type="button" @click="closePreview">&times;</button>
-        </header>
-        <section class="modal-body docx-modal-body">
-          <div class="docx-preview-shell">
-            <div v-if="previewLoading" class="modal-status overlay">Generating preview…</div>
-            <div v-else-if="previewError" class="modal-error">{{ previewError }}</div>
-            <div
-              ref="docxPreviewContainer"
-              class="docx-preview-container"
-              :class="{ hidden: previewLoading || !!previewError }"
-            ></div>
-          </div>
-        </section>
-        <footer class="modal-footer">
-          <a
-            v-if="generatedDocxPath && !previewLoading && !previewError"
-            :href="downloadUrl"
-            download="ST_Introduction.docx"
-            class="btn primary"
-          >
-            Download DOCX
-          </a>
-          <button class="btn" type="button" @click="closePreview">Close</button>
-        </footer>
+          <p class="preview-subtitle">A combined preview of the entire ST Introduction content</p>
+        </div>
+        <a
+          v-if="generatedDocxPath && !previewLoading && !previewError"
+          :href="downloadUrl"
+          download="ST_Introduction.docx"
+          class="btn primary"
+        >
+          Download DOCX
+        </a>
+      </header>
+
+      <div class="preview-body">
+        <div v-if="!hasData" class="info-message">
+          <p>Please fill in at least one section (Cover, ST Reference, TOE Reference, TOE Overview, or TOE Description) to generate a preview.</p>
+        </div>
+        <div v-else class="docx-preview-shell">
+          <div v-if="previewLoading" class="modal-status overlay">Generating preview…</div>
+          <div v-else-if="previewError" class="modal-error">{{ previewError }}</div>
+          <div
+            ref="docxPreviewContainer"
+            class="docx-preview-container"
+            :class="{ hidden: previewLoading || !!previewError || !hasGeneratedDocx }"
+          ></div>
+        </div>
       </div>
     </div>
   </div>
@@ -56,30 +73,101 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
-import { sessionService } from '../services/sessionService'
+import {
+  sessionService,
+  type CoverSessionData,
+  type STReferenceSessionData,
+  type TOEReferenceSessionData,
+  type TOEOverviewSessionData,
+  type TOEDescriptionSessionData,
+} from '../services/sessionService'
 
-const showPreview = ref(false)
+type SectionKey = 'cover' | 'st-reference' | 'toe-reference' | 'toe-overview' | 'toe-description'
+
+interface SectionStatus {
+  key: SectionKey
+  label: string
+  complete: boolean
+}
+
 const previewLoading = ref(false)
 const previewError = ref('')
 const generatedDocxPath = ref<string | null>(null)
 const hasGeneratedDocx = ref(false)
 const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 const userToken = ref('')
+const sectionStatus = ref<SectionStatus[]>([
+  { key: 'cover', label: 'Cover', complete: false },
+  { key: 'st-reference', label: 'ST Reference', complete: false },
+  { key: 'toe-reference', label: 'TOE Reference', complete: false },
+  { key: 'toe-overview', label: 'TOE Overview', complete: false },
+  { key: 'toe-description', label: 'TOE Description', complete: false },
+])
 
-const hasData = computed(() => {
-  const coverData = sessionService.loadCoverData()
-  const stRefData = sessionService.loadSTReferenceData()
-  const toeRefData = sessionService.loadTOEReferenceData()
-  const toeOverviewData = sessionService.loadTOEOverviewData()
-  const toeDescData = sessionService.loadTOEDescriptionData()
-  
-  return !!(coverData || stRefData || toeRefData || toeOverviewData || toeDescData)
-})
+const missingSections = computed(() => sectionStatus.value.filter(section => !section.complete).map(section => section.label))
+
+const hasData = computed(() => sectionStatus.value.some(section => section.complete))
 
 const downloadUrl = computed(() => {
   if (!generatedDocxPath.value) return ''
   return api.getUri({ url: generatedDocxPath.value })
 })
+
+function hasCoverContent(data: CoverSessionData | null): boolean {
+  if (!data) return false
+  const form = data.form || {}
+  return Boolean(
+    data.uploadedImagePath ||
+    form.title ||
+    form.version ||
+    form.revision ||
+    form.description ||
+    form.manufacturer ||
+    form.date
+  )
+}
+
+function hasSTReferenceContent(data: STReferenceSessionData | null): boolean {
+  if (!data) return false
+  return Boolean(data.stTitle || data.stVersion || data.stDate || data.author)
+}
+
+function hasTOEReferenceContent(data: TOEReferenceSessionData | null): boolean {
+  if (!data) return false
+  return Boolean(data.toeName || data.toeVersion || data.toeIdentification || data.toeType)
+}
+
+function hasTOEOverviewContent(data: TOEOverviewSessionData | null): boolean {
+  if (!data) return false
+  return Boolean(
+    data.toeOverview ||
+    data.toeType ||
+    data.toeUsage ||
+    data.toeMajorSecurityFeatures ||
+    data.nonToeHardwareSoftwareFirmware
+  )
+}
+
+function hasTOEDescriptionContent(data: TOEDescriptionSessionData | null): boolean {
+  if (!data) return false
+  return Boolean(data.toePhysicalScope || data.toeLogicalScope)
+}
+
+function updateSectionStatus() {
+  const coverData = sessionService.loadCoverData()
+  const stReferenceData = sessionService.loadSTReferenceData()
+  const toeReferenceData = sessionService.loadTOEReferenceData()
+  const toeOverviewData = sessionService.loadTOEOverviewData()
+  const toeDescriptionData = sessionService.loadTOEDescriptionData()
+
+  sectionStatus.value = [
+    { key: 'cover', label: 'Cover', complete: hasCoverContent(coverData) },
+    { key: 'st-reference', label: 'ST Reference', complete: hasSTReferenceContent(stReferenceData) },
+    { key: 'toe-reference', label: 'TOE Reference', complete: hasTOEReferenceContent(toeReferenceData) },
+    { key: 'toe-overview', label: 'TOE Overview', complete: hasTOEOverviewContent(toeOverviewData) },
+    { key: 'toe-description', label: 'TOE Description', complete: hasTOEDescriptionContent(toeDescriptionData) },
+  ]
+}
 
 function buildSTReferenceHTML(): string {
   const data = sessionService.loadSTReferenceData()
@@ -198,17 +286,22 @@ function escapeHtml(text: string): string {
 }
 
 async function generatePreview() {
+  updateSectionStatus()
+
   if (!hasData.value || previewLoading.value) return
 
+  if (!userToken.value) {
+    userToken.value = sessionService.getUserToken()
+  }
+
   previewError.value = ''
-  showPreview.value = true
   previewLoading.value = true
 
   await nextTick()
   cleanupDocx()
+  hasGeneratedDocx.value = false
 
   try {
-    // Gather all data
     const coverData = sessionService.loadCoverData()
     const stReferenceHTML = buildSTReferenceHTML()
     const toeReferenceHTML = buildTOEReferenceHTML()
@@ -217,19 +310,21 @@ async function generatePreview() {
 
     const payload = {
       user_id: userToken.value,
-      cover_data: coverData ? {
-        title: coverData.form.title,
-        version: coverData.form.version,
-        revision: coverData.form.revision,
-        description: coverData.form.description,
-        manufacturer: coverData.form.manufacturer,
-        date: coverData.form.date,
-        image_path: coverData.uploadedImagePath
-      } : null,
+      cover_data: coverData
+        ? {
+            title: coverData.form.title,
+            version: coverData.form.version,
+            revision: coverData.form.revision,
+            description: coverData.form.description,
+            manufacturer: coverData.form.manufacturer,
+            date: coverData.form.date,
+            image_path: coverData.uploadedImagePath,
+          }
+        : null,
       st_reference_html: stReferenceHTML || null,
       toe_reference_html: toeReferenceHTML || null,
       toe_overview_html: toeOverviewHTML || null,
-      toe_description_html: toeDescriptionHTML || null
+      toe_description_html: toeDescriptionHTML || null,
     }
 
     const response = await api.post('/st-intro/preview', payload)
@@ -251,14 +346,6 @@ async function generatePreview() {
   }
 }
 
-function closePreview() {
-  showPreview.value = false
-  if (!previewLoading.value) {
-    previewError.value = ''
-  }
-  cleanupDocx()
-}
-
 async function renderDocxPreview(path: string) {
   if (!docxPreviewContainer.value) return
 
@@ -276,11 +363,12 @@ async function renderDocxPreview(path: string) {
   } catch (error: any) {
     const message = error?.message || 'Failed to render DOCX preview.'
     previewError.value = message
+    hasGeneratedDocx.value = false
   }
 }
 
 const cleanupDocx = (keepalive = false) => {
-  if (!userToken.value || !hasGeneratedDocx.value) {
+  if (!userToken.value || !generatedDocxPath.value) {
     return
   }
 
@@ -293,12 +381,15 @@ const cleanupDocx = (keepalive = false) => {
 const handleBeforeUnload = () => cleanupDocx(true)
 const handlePageHide = () => cleanupDocx(true)
 
+const handleWindowFocus = () => updateSectionStatus()
+
 const addPreviewListeners = () => {
   if (typeof window === 'undefined') {
     return
   }
   window.addEventListener('beforeunload', handleBeforeUnload)
   window.addEventListener('pagehide', handlePageHide)
+  window.addEventListener('focus', handleWindowFocus)
 }
 
 const removePreviewListeners = () => {
@@ -307,10 +398,12 @@ const removePreviewListeners = () => {
   }
   window.removeEventListener('beforeunload', handleBeforeUnload)
   window.removeEventListener('pagehide', handlePageHide)
+  window.removeEventListener('focus', handleWindowFocus)
 }
 
 onMounted(() => {
   userToken.value = sessionService.getUserToken()
+  updateSectionStatus()
   addPreviewListeners()
 })
 
@@ -342,88 +435,128 @@ onBeforeUnmount(() => {
   color: var(--muted);
 }
 
+.status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+}
+
+.status-header h2 {
+  margin: 0;
+}
+
+.status-subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.status-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.status-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid #374151;
+  background: rgba(55, 65, 81, 0.18);
+}
+
+.status-label {
+  font-weight: 500;
+}
+
+.status-indicator {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+}
+
+.status-indicator.completed {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
+.status-indicator.missing {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.status-warning {
+  border-left: 3px solid #f97316;
+  padding: 12px 16px;
+  background: rgba(249, 115, 22, 0.12);
+  border-radius: 8px;
+  color: #fb923c;
+}
+
+.status-success {
+  border-left: 3px solid #22c55e;
+  padding: 12px 16px;
+  background: rgba(34, 197, 94, 0.12);
+  border-radius: 8px;
+  color: #4ade80;
+}
+
+.preview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+}
+
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.preview-header h2 {
+  margin: 0;
+}
+
+.preview-subtitle {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .info-message {
   padding: 24px;
   text-align: center;
   color: var(--muted);
-}
-
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.modal-card {
-  background: var(--bg);
+  border: 1px dashed #4b5563;
   border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  display: flex;
-  flex-direction: column;
-  max-height: 90vh;
-  width: 100%;
-  max-width: 1200px;
-}
-
-.docx-modal {
-  max-width: 1400px;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid #374151;
-}
-
-.modal-header h2 {
-  margin: 0;
-  font-size: 20px;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 32px;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--text);
-  padding: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.modal-close:hover {
-  color: var(--primary);
-}
-
-.modal-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 24px;
-}
-
-.docx-modal-body {
-  padding: 0;
-  background: #1a1a1a;
 }
 
 .docx-preview-shell {
   position: relative;
-  min-height: 500px;
+  min-height: 520px;
   width: 100%;
+  border: 1px solid #374151;
+  border-radius: 12px;
+  background: #0f172a;
+  overflow: hidden;
 }
 
 .modal-status {
@@ -441,7 +574,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(15, 23, 42, 0.85);
   z-index: 10;
 }
 
@@ -454,19 +587,13 @@ onBeforeUnmount(() => {
 .docx-preview-container {
   padding: 24px;
   overflow-y: auto;
-  max-height: calc(90vh - 200px);
+  max-height: 520px;
+  background: #1a1f2e;
+  height: 100%;
 }
 
 .docx-preview-container.hidden {
   display: none;
-}
-
-.modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 20px 24px;
-  border-top: 1px solid #374151;
 }
 
 .btn {
@@ -500,6 +627,18 @@ onBeforeUnmount(() => {
 
 .btn.primary:hover:not(:disabled) {
   background: #2563eb;
+}
+
+@media (max-width: 768px) {
+  .status-list li {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .preview-header {
+    align-items: flex-start;
+  }
 }
 
 :global(.docx-rendered) {

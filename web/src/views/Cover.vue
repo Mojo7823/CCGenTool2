@@ -134,28 +134,13 @@ const form = reactive({
   date: ''
 })
 
-const storageKey = 'ccgen-user-id'
-const userId = ref('')
+const userToken = ref('')
 
 const hasPreview = computed(() => !!uploadedImagePath.value || !!form.title || !!form.description)
 const imageUrl = computed(() => {
   if (!uploadedImagePath.value) return ''
   return api.getUri({ url: uploadedImagePath.value })
 })
-
-function ensureUserId() {
-  if (typeof window === 'undefined') return
-  const existing = window.localStorage.getItem(storageKey)
-  if (existing) {
-    userId.value = existing
-    return
-  }
-  const generated = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2)
-  userId.value = generated
-  window.localStorage.setItem(storageKey, generated)
-}
 
 function saveSessionData() {
   sessionService.saveCoverData(form, uploadedImagePath.value)
@@ -198,7 +183,7 @@ function validateImage(file: File) {
 }
 
 async function uploadFile(file: File) {
-  if (!userId.value) return
+  if (!userToken.value) return
   uploading.value = true
   uploadError.value = ''
   try {
@@ -206,7 +191,7 @@ async function uploadFile(file: File) {
     const formData = new FormData()
     formData.append('file', file)
     const response = await api.post('/cover/upload', formData, {
-      params: { user_id: userId.value },
+      params: { user_id: userToken.value },
       headers: { 'Content-Type': 'multipart/form-data' },
     })
     uploadedImagePath.value = response.data.path
@@ -235,11 +220,7 @@ function handleDrop(event: DragEvent) {
 async function openPreview() {
   if (!hasPreview.value || previewLoading.value) return
 
-  if (!userId.value) {
-    ensureUserId()
-  }
-
-  if (!userId.value) {
+  if (!userToken.value) {
     previewError.value = 'Unable to determine user session identifier.'
     showPreview.value = true
     return
@@ -254,7 +235,7 @@ async function openPreview() {
 
   try {
     const payload = {
-      user_id: userId.value,
+      user_id: userToken.value,
       title: form.title,
       version: form.version,
       revision: form.revision,
@@ -319,10 +300,10 @@ function removeEventListeners() {
 }
 
 function cleanupUploads(keepalive = false) {
-  if (!userId.value) return
+  if (!userToken.value) return
 
   if (hasUploaded.value) {
-    const url = api.getUri({ url: `/cover/upload/${userId.value}` })
+    const url = api.getUri({ url: `/cover/upload/${userToken.value}` })
     fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
     hasUploaded.value = false
     uploadedImagePath.value = null
@@ -332,8 +313,8 @@ function cleanupUploads(keepalive = false) {
 }
 
 function cleanupDocx(keepalive = false) {
-  if (!userId.value || !generatedDocxPath.value) return
-  const url = api.getUri({ url: `/cover/preview/${userId.value}` })
+  if (!userToken.value || !generatedDocxPath.value) return
+  const url = api.getUri({ url: `/cover/preview/${userToken.value}` })
   fetch(url, { method: 'DELETE', keepalive }).catch(() => undefined)
   generatedDocxPath.value = null
 }
@@ -349,7 +330,7 @@ function handlePageHide() {
 }
 
 onMounted(() => {
-  ensureUserId()
+  userToken.value = sessionService.getUserToken()
   loadSessionData()
   if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', handleBeforeUnload)
