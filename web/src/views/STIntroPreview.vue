@@ -3,7 +3,7 @@
     <div class="card st-intro-preview-menubar">
       <div class="st-intro-preview-menubar-left">
         <h1>ST Introduction Preview</h1>
-        <span class="menubar-subtitle">Preview and download the complete ST Introduction document</span>
+        <span class="menubar-subtitle">Preview all the ST Introduction section</span>
       </div>
       <button
         class="btn primary"
@@ -15,38 +15,67 @@
       </button>
     </div>
 
-    <div v-if="!showPreview && !hasData" class="card info-message">
+    <div v-if="!hasData" class="card info-message">
       <p>Please fill in at least one section (Cover, ST Reference, TOE Reference, TOE Overview, or TOE Description) to generate a preview.</p>
     </div>
 
-    <div v-if="showPreview" class="modal-overlay" @click.self="closePreview">
-      <div class="modal-card docx-modal">
-        <header class="modal-header">
-          <h2>ST Introduction Preview</h2>
-          <button class="modal-close" type="button" @click="closePreview">&times;</button>
-        </header>
-        <section class="modal-body docx-modal-body">
-          <div class="docx-preview-shell">
-            <div v-if="previewLoading" class="modal-status overlay">Generating preview…</div>
-            <div v-else-if="previewError" class="modal-error">{{ previewError }}</div>
-            <div
-              ref="docxPreviewContainer"
-              class="docx-preview-container"
-              :class="{ hidden: previewLoading || !!previewError }"
-            ></div>
-          </div>
-        </section>
-        <footer class="modal-footer">
-          <a
-            v-if="generatedDocxPath && !previewLoading && !previewError"
-            :href="downloadUrl"
-            download="ST_Introduction.docx"
-            class="btn primary"
-          >
-            Download DOCX
-          </a>
-          <button class="btn" type="button" @click="closePreview">Close</button>
-        </footer>
+    <!-- Section Status Card -->
+    <div v-if="hasData" class="card section-status-card">
+      <h2>Section Status</h2>
+      <div class="status-list">
+        <div class="status-item">
+          <span class="status-label">Cover</span>
+          <span :class="['status-badge', sectionStatus.cover ? 'completed' : 'missing']">
+            {{ sectionStatus.cover ? 'Completed' : 'Missing' }}
+          </span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">ST Reference</span>
+          <span :class="['status-badge', sectionStatus.stReference ? 'completed' : 'missing']">
+            {{ sectionStatus.stReference ? 'Completed' : 'Missing' }}
+          </span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">TOE Reference</span>
+          <span :class="['status-badge', sectionStatus.toeReference ? 'completed' : 'missing']">
+            {{ sectionStatus.toeReference ? 'Completed' : 'Missing' }}
+          </span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">TOE Overview</span>
+          <span :class="['status-badge', sectionStatus.toeOverview ? 'completed' : 'missing']">
+            {{ sectionStatus.toeOverview ? 'Completed' : 'Missing' }}
+          </span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">TOE Description</span>
+          <span :class="['status-badge', sectionStatus.toeDescription ? 'completed' : 'missing']">
+            {{ sectionStatus.toeDescription ? 'Completed' : 'Missing' }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Inline Preview Section -->
+    <div v-if="showPreview" class="card preview-card">
+      <h2>ST Introduction Preview</h2>
+      <div class="preview-content">
+        <div v-if="previewLoading" class="preview-loading">Generating preview…</div>
+        <div v-else-if="previewError" class="preview-error">{{ previewError }}</div>
+        <div
+          v-else
+          ref="docxPreviewContainer"
+          class="docx-preview-container"
+        ></div>
+      </div>
+      <div v-if="generatedDocxPath && !previewLoading && !previewError" class="preview-footer">
+        <a
+          :href="downloadUrl"
+          download="ST_Introduction.docx"
+          class="btn primary"
+        >
+          Download DOCX
+        </a>
       </div>
     </div>
   </div>
@@ -66,14 +95,25 @@ const hasGeneratedDocx = ref(false)
 const docxPreviewContainer = ref<HTMLDivElement | null>(null)
 const userToken = ref('')
 
-const hasData = computed(() => {
+const sectionStatus = computed(() => {
   const coverData = sessionService.loadCoverData()
   const stRefData = sessionService.loadSTReferenceData()
   const toeRefData = sessionService.loadTOEReferenceData()
   const toeOverviewData = sessionService.loadTOEOverviewData()
   const toeDescData = sessionService.loadTOEDescriptionData()
   
-  return !!(coverData || stRefData || toeRefData || toeOverviewData || toeDescData)
+  return {
+    cover: !!(coverData && (coverData.uploadedImagePath || coverData.form.title || coverData.form.description)),
+    stReference: !!(stRefData && (stRefData.stTitle || stRefData.stVersion || stRefData.stDate || stRefData.author)),
+    toeReference: !!(toeRefData && (toeRefData.toeName || toeRefData.toeVersion || toeRefData.toeIdentification || toeRefData.toeType)),
+    toeOverview: !!(toeOverviewData && (toeOverviewData.toeOverview || toeOverviewData.toeType || toeOverviewData.toeUsage || toeOverviewData.toeMajorSecurityFeatures || toeOverviewData.nonToeHardwareSoftwareFirmware)),
+    toeDescription: !!(toeDescData && (toeDescData.toePhysicalScope || toeDescData.toeLogicalScope))
+  }
+})
+
+const hasData = computed(() => {
+  const status = sectionStatus.value
+  return status.cover || status.stReference || status.toeReference || status.toeOverview || status.toeDescription
 })
 
 const downloadUrl = computed(() => {
@@ -348,125 +388,91 @@ onBeforeUnmount(() => {
   color: var(--muted);
 }
 
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
+/* Section Status Card */
+.section-status-card {
+  padding: 24px;
 }
 
-.modal-card {
-  background: var(--bg);
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+.section-status-card h2 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+}
+
+.status-list {
   display: flex;
   flex-direction: column;
-  max-height: 90vh;
-  width: 100%;
-  max-width: 1200px;
+  gap: 12px;
 }
 
-.docx-modal {
-  max-width: 1400px;
-}
-
-.modal-header {
+.status-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid #374151;
+  padding: 12px;
+  background: var(--bg-soft);
+  border-radius: 8px;
 }
 
-.modal-header h2 {
-  margin: 0;
-  font-size: 20px;
-}
-
-.modal-close {
-  background: none;
-  border: none;
-  font-size: 32px;
-  line-height: 1;
-  cursor: pointer;
+.status-label {
+  font-weight: 500;
   color: var(--text);
-  padding: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.modal-close:hover {
-  color: var(--primary);
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
-.modal-body {
-  flex: 1;
-  overflow-y: auto;
+.status-badge.completed {
+  background: #10b981;
+  color: white;
+}
+
+.status-badge.missing {
+  background: #ef4444;
+  color: white;
+}
+
+/* Preview Card */
+.preview-card {
   padding: 24px;
 }
 
-.docx-modal-body {
-  padding: 0;
+.preview-card h2 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+}
+
+.preview-content {
   background: #1a1a1a;
-}
-
-.docx-preview-shell {
-  position: relative;
+  border-radius: 8px;
   min-height: 500px;
-  width: 100%;
+  position: relative;
 }
 
-.modal-status {
-  padding: 24px;
+.preview-loading,
+.preview-error {
+  padding: 48px 24px;
   text-align: center;
   color: var(--muted);
 }
 
-.modal-status.overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 10;
-}
-
-.modal-error {
-  padding: 24px;
-  text-align: center;
+.preview-error {
   color: #ef4444;
 }
 
 .docx-preview-container {
   padding: 24px;
   overflow-y: auto;
-  max-height: calc(90vh - 200px);
+  max-height: 70vh;
 }
 
-.docx-preview-container.hidden {
-  display: none;
-}
-
-.modal-footer {
+.preview-footer {
+  margin-top: 16px;
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  padding: 20px 24px;
-  border-top: 1px solid #374151;
 }
 
 .btn {
