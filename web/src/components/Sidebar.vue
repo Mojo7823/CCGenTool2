@@ -1,13 +1,10 @@
 <template>
-  <ul class="menu">
+  <ul class="menu root-menu">
     <li>
       <RouterLink to="/" active-class="active">Home</RouterLink>
     </li>
     <li>
       <RouterLink to="/generator" active-class="active">Generator</RouterLink>
-    </li>
-    <li>
-      <RouterLink to="/settings" active-class="active">Settings</RouterLink>
     </li>
     <li>
       <div class="accordion">
@@ -41,6 +38,9 @@
         </div>
       </div>
     </li>
+    <li class="settings-link">
+      <RouterLink to="/settings" active-class="active">Settings</RouterLink>
+    </li>
   </ul>
 </template>
 
@@ -51,4 +51,18 @@ const securityOpen = ref(true)
 </script>
 
 <style scoped>
+.root-menu {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 6px;
+}
+
+.root-menu > li {
+  margin-bottom: 0;
+}
+
+.settings-link {
+  margin-top: auto;
+}
 </style>

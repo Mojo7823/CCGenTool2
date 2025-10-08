@@ -17,7 +17,7 @@ body { margin: 0; background: var(--bg); color: var(--text); font-family: ui-san
   "sidebar navbar" 
   "sidebar main"; height: 100%; }
 .navbar { grid-area: navbar; background: var(--panel); display:flex; align-items:center; justify-content:space-between; padding: 0 16px; border-bottom: 1px solid #374151; }
-.sidebar { grid-area: sidebar; background: var(--bg-soft); border-right: 1px solid #1f2937; padding: 12px; }
+.sidebar { grid-area: sidebar; background: var(--bg-soft); border-right: 1px solid #1f2937; padding: 12px; display:flex; flex-direction:column; }
 .main { grid-area: main; padding: 16px; }
 
 .brand { font-weight: 700; letter-spacing: .2px; }

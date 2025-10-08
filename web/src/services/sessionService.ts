@@ -60,6 +60,7 @@ export interface TOEOverviewSessionData {
 }
 
 export interface TOEDescriptionSessionData {
+  toeDescription: string
   toePhysicalScope: string
   toeLogicalScope: string
   userToken: string
@@ -490,7 +491,9 @@ class SessionService {
    */
   saveTOEDescriptionData(data: Omit<TOEDescriptionSessionData, 'userToken' | 'timestamp'>): void {
     const sessionData: TOEDescriptionSessionData = {
-      ...data,
+      toeDescription: data.toeDescription ?? '',
+      toePhysicalScope: data.toePhysicalScope ?? '',
+      toeLogicalScope: data.toeLogicalScope ?? '',
       userToken: this.userToken,
       timestamp: Date.now()
     }
@@ -515,7 +518,14 @@ class SessionService {
         return null
       }
 
-      const sessionData: TOEDescriptionSessionData = JSON.parse(data)
+      const rawData = JSON.parse(data) as Partial<TOEDescriptionSessionData> & { userToken: string; timestamp: number }
+      const sessionData: TOEDescriptionSessionData = {
+        toeDescription: rawData.toeDescription ?? '',
+        toePhysicalScope: rawData.toePhysicalScope ?? '',
+        toeLogicalScope: rawData.toeLogicalScope ?? '',
+        userToken: rawData.userToken,
+        timestamp: rawData.timestamp,
+      }
 
       if (sessionData.userToken !== this.userToken) {
         console.warn('Session token mismatch, ignoring stored TOE Description data')

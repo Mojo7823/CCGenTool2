@@ -2,17 +2,35 @@
   <div v-if="editor" class="rich-text-editor">
     <div class="toolbar">
       <div class="toolbar-group">
-        <button type="button" class="toolbar-button" :disabled="!editor.can().undo()" @click="editor.chain().focus().undo().run()">
+        <button
+          type="button"
+          class="toolbar-button"
+          :disabled="!editor.can().undo()"
+          title="Undo"
+          @click="editor.chain().focus().undo().run()"
+        >
           ⟲
         </button>
-        <button type="button" class="toolbar-button" :disabled="!editor.can().redo()" @click="editor.chain().focus().redo().run()">
+        <button
+          type="button"
+          class="toolbar-button"
+          :disabled="!editor.can().redo()"
+          title="Redo"
+          @click="editor.chain().focus().redo().run()"
+        >
           ⟳
         </button>
       </div>
 
       <div class="toolbar-group">
         <label class="toolbar-label" for="heading-select">Text Size</label>
-        <select id="heading-select" class="toolbar-select" v-model="headingSelection" @change="applyHeading">
+        <select
+          id="heading-select"
+          class="toolbar-select"
+          v-model="headingSelection"
+          title="Change text size"
+          @change="applyHeading"
+        >
           <option value="paragraph">Paragraph</option>
           <option value="1">Heading 1</option>
           <option value="2">Heading 2</option>
@@ -23,7 +41,13 @@
 
       <div class="toolbar-group">
         <label class="toolbar-label" for="list-select">Lists</label>
-        <select id="list-select" class="toolbar-select" v-model="listSelection" @change="applyList">
+        <select
+          id="list-select"
+          class="toolbar-select"
+          v-model="listSelection"
+          title="Insert or remove lists"
+          @change="applyList"
+        >
           <option value="">Select</option>
           <option value="bullet">Bullet list</option>
           <option value="ordered">Ordered list</option>
@@ -33,23 +57,53 @@
       </div>
 
       <div class="toolbar-group format-group">
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('bold') }" @click="toggleInline('bold')">
+        <button
+          type="button"
+          class="toolbar-button"
+          :class="{ active: editor.isActive('bold') }"
+          title="Bold"
+          @click="toggleInline('bold')"
+        >
           B
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('italic') }" @click="toggleInline('italic')">
+        <button
+          type="button"
+          class="toolbar-button"
+          :class="{ active: editor.isActive('italic') }"
+          title="Italic"
+          @click="toggleInline('italic')"
+        >
           I
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('strike') }" @click="toggleInline('strike')">
+        <button
+          type="button"
+          class="toolbar-button"
+          :class="{ active: editor.isActive('strike') }"
+          title="Strikethrough"
+          @click="toggleInline('strike')"
+        >
           S
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('underline') }" @click="toggleInline('underline')">
+        <button
+          type="button"
+          class="toolbar-button"
+          :class="{ active: editor.isActive('underline') }"
+          title="Underline"
+          @click="toggleInline('underline')"
+        >
           U
         </button>
       </div>
 
       <div class="toolbar-group">
         <label class="toolbar-label" for="highlight-select">Highlight</label>
-        <select id="highlight-select" class="toolbar-select" v-model="highlightSelection" @change="applyHighlight">
+        <select
+          id="highlight-select"
+          class="toolbar-select"
+          v-model="highlightSelection"
+          title="Apply text highlight"
+          @change="applyHighlight"
+        >
           <option value="">Select</option>
           <option value="green">Green</option>
           <option value="yellow">Yellow</option>
@@ -59,32 +113,86 @@
         </select>
       </div>
 
+      <div class="toolbar-group">
+        <label class="toolbar-label" for="color-select">Text Color</label>
+        <select
+          id="color-select"
+          class="toolbar-select"
+          v-model="textColorSelection"
+          title="Change text color"
+          @change="applyTextColor"
+        >
+          <option value="">Default</option>
+          <option value="black">Black</option>
+          <option value="red">Red</option>
+          <option value="blue">Blue</option>
+          <option value="green">Green</option>
+        </select>
+      </div>
+
       <div class="toolbar-group format-group">
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('superscript') }" @click="toggleSuperscript">
+        <button
+          type="button"
+          class="toolbar-button"
+          :class="{ active: editor.isActive('superscript') }"
+          title="Superscript"
+          @click="toggleSuperscript"
+        >
           X<sup>2</sup>
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive('subscript') }" @click="toggleSubscript">
+        <button
+          type="button"
+          class="toolbar-button"
+          :class="{ active: editor.isActive('subscript') }"
+          title="Subscript"
+          @click="toggleSubscript"
+        >
           X<sub>2</sub>
         </button>
       </div>
 
       <div class="toolbar-group format-group">
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'left' }) }" @click="setAlignment('left')">
+        <button
+          type="button"
+          class="toolbar-button"
+          :class="{ active: editor.isActive({ textAlign: 'left' }) }"
+          title="Align left"
+          @click="setAlignment('left')"
+        >
           ⬅
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'center' }) }" @click="setAlignment('center')">
+        <button
+          type="button"
+          class="toolbar-button"
+          :class="{ active: editor.isActive({ textAlign: 'center' }) }"
+          title="Align center"
+          @click="setAlignment('center')"
+        >
           ⬍
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'right' }) }" @click="setAlignment('right')">
+        <button
+          type="button"
+          class="toolbar-button"
+          :class="{ active: editor.isActive({ textAlign: 'right' }) }"
+          title="Align right"
+          @click="setAlignment('right')"
+        >
           ➡
         </button>
-        <button type="button" class="toolbar-button" :class="{ active: editor.isActive({ textAlign: 'justify' }) }" @click="setAlignment('justify')">
+        <button
+          type="button"
+          class="toolbar-button"
+          :class="{ active: editor.isActive({ textAlign: 'justify' }) }"
+          title="Justify"
+          @click="setAlignment('justify')"
+        >
           ☰
         </button>
       </div>
 
       <div class="toolbar-group">
-        <button type="button" class="toolbar-button" @click="insertImage">🖼</button>
+        <button type="button" class="toolbar-button" title="Insert image" @click="triggerImagePicker">🖼</button>
+        <input ref="fileInputRef" class="hidden-file-input" type="file" accept="image/*" @change="handleImageUpload" />
       </div>
 
       <div class="toolbar-group table-group">
@@ -93,10 +201,16 @@
           <input type="number" min="1" v-model.number="tableRows" />
           <span>×</span>
           <input type="number" min="1" v-model.number="tableCols" />
-          <button type="button" class="toolbar-button" @click="insertTable">Insert</button>
+          <button type="button" class="toolbar-button" title="Insert table" @click="insertTable">Insert</button>
         </div>
         <label class="toolbar-label" for="table-action-select">Delete</label>
-        <select id="table-action-select" class="toolbar-select" v-model="tableAction" @change="handleTableAction">
+        <select
+          id="table-action-select"
+          class="toolbar-select"
+          v-model="tableAction"
+          title="Table actions"
+          @change="handleTableAction"
+        >
           <option value="">Select</option>
           <option value="delete-row">Delete row</option>
           <option value="delete-column">Delete column</option>
@@ -116,7 +230,10 @@ import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Highlight from '@tiptap/extension-highlight'
 import TextAlign from '@tiptap/extension-text-align'
-import Image from '@tiptap/extension-image'
+import { TextStyle } from '@tiptap/extension-text-style'
+import Color from '@tiptap/extension-color'
+import { ResizableImage } from 'tiptap-extension-resizable-image'
+import 'tiptap-extension-resizable-image/styles.css'
 import { Table } from '@tiptap/extension-table'
 import TableRow from '@tiptap/extension-table-row'
 import TableHeader from '@tiptap/extension-table-header'
@@ -145,15 +262,24 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const headingSelection = ref<'paragraph' | '1' | '2' | '3' | '4'>('paragraph')
 const listSelection = ref('')
 const highlightSelection = ref('')
+const textColorSelection = ref('')
 const tableAction = ref('')
 const tableRows = ref(2)
 const tableCols = ref(2)
+const fileInputRef = ref<HTMLInputElement | null>(null)
 
 const highlightMap: Record<string, string> = {
   green: '#22c55e',
   yellow: '#facc15',
   blue: '#60a5fa',
   red: '#f87171',
+}
+
+const textColorMap: Record<string, string> = {
+  black: '#000000',
+  red: '#ef4444',
+  blue: '#3b82f6',
+  green: '#22c55e',
 }
 
 const editor = useEditor({
@@ -167,7 +293,12 @@ const editor = useEditor({
     Underline,
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
-    Image.configure({ inline: false, allowBase64: true }),
+    TextStyle,
+    Color.configure({ types: ['textStyle'] }),
+    ResizableImage.configure({
+      allowBase64: true,
+      HTMLAttributes: { class: 'editor-image' },
+    }),
     Table.configure({ resizable: true }),
     TableRow,
     TableHeader,
@@ -195,6 +326,14 @@ function updateToolbarState() {
   else if (instance.isActive('heading', { level: 3 })) headingSelection.value = '3'
   else if (instance.isActive('heading', { level: 4 })) headingSelection.value = '4'
   else headingSelection.value = 'paragraph'
+
+  const activeColor = (instance.getAttributes('textStyle')?.color as string | undefined)?.toLowerCase()
+  if (activeColor) {
+    const foundEntry = Object.entries(textColorMap).find(([, hex]) => hex.toLowerCase() === activeColor)
+    textColorSelection.value = foundEntry ? foundEntry[0] : ''
+  } else {
+    textColorSelection.value = ''
+  }
 }
 
 watch(
@@ -269,6 +408,17 @@ function applyHighlight() {
   highlightSelection.value = ''
 }
 
+function applyTextColor() {
+  if (!editor?.value) return
+  const value = textColorSelection.value
+  const chain = editor.value.chain().focus()
+  if (!value) {
+    chain.unsetColor().run()
+  } else if (value in textColorMap) {
+    chain.setColor(textColorMap[value]).run()
+  }
+}
+
 function toggleSuperscript() {
   if (!editor?.value) return
   editor.value.chain().focus().toggleSuperscript().run()
@@ -284,11 +434,27 @@ function setAlignment(alignment: 'left' | 'center' | 'right' | 'justify') {
   editor.value.chain().focus().setTextAlign(alignment).run()
 }
 
-function insertImage() {
+function triggerImagePicker() {
+  fileInputRef.value?.click()
+}
+
+function handleImageUpload(event: Event) {
   if (!editor?.value) return
-  const url = window.prompt('Enter image URL')
-  if (!url) return
-  editor.value.chain().focus().setImage({ src: url }).run()
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    const result = reader.result
+    if (typeof result === 'string') {
+      editor.value?.chain().focus().setResizableImage({ src: result, alt: file.name }).run()
+    }
+    if (fileInputRef.value) {
+      fileInputRef.value.value = ''
+    }
+  }
+  reader.readAsDataURL(file)
 }
 
 function insertTable() {
@@ -398,6 +564,17 @@ onBeforeUnmount(() => {
   color: #fff;
 }
 
+.hidden-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
 .table-inputs {
   display: flex;
   align-items: center;
@@ -413,6 +590,7 @@ onBeforeUnmount(() => {
   padding: 4px 6px;
 }
 
+
 .editor {
   border: 1px solid #374151;
   border-radius: 12px;
@@ -420,6 +598,13 @@ onBeforeUnmount(() => {
   background: rgba(15, 23, 42, 0.6);
   color: var(--text);
   line-height: 1.6;
+  position: relative;
+}
+
+.editor :deep(.ProseMirror) {
+  min-height: 100%;
+  outline: none;
+  cursor: text;
 }
 
 .editor :deep(p.is-editor-empty:first-child::before) {
@@ -441,6 +626,37 @@ onBeforeUnmount(() => {
   padding: 6px 10px;
 }
 
+.editor :deep(.tableWrapper) {
+  position: relative;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.editor :deep(.tableWrapper:focus-within)::after,
+.editor :deep(.tableWrapper:hover)::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border: 2px solid rgba(59, 130, 246, 0.5);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.editor :deep(.selectedCell) {
+  background: rgba(59, 130, 246, 0.18);
+  box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.6);
+}
+
+.editor :deep(.column-resize-handle) {
+  background: var(--primary);
+  opacity: 0.7;
+  width: 3px;
+  transition: opacity 0.2s ease;
+}
+
+.editor :deep(.column-resize-handle:hover) {
+  opacity: 1;
+}
+
 .editor :deep(ul),
 .editor :deep(ol) {
   padding-left: 24px;
@@ -454,5 +670,10 @@ onBeforeUnmount(() => {
 
 .editor :deep(.task-list-item input) {
   margin-top: 6px;
+}
+
+.editor :deep(img) {
+  max-width: 100%;
+  height: auto;
 }
 </style>
