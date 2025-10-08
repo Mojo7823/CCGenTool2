@@ -16,7 +16,7 @@ function resolveBaseURL(): string {
 // Use the resolved base URL instead of hardcoded port
 const api = axios.create({ 
 	baseURL: resolveBaseURL(),
-	timeout: 5000
+	timeout: 30000
 })
 
 export default api

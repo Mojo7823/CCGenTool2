@@ -76,6 +76,30 @@ export interface ConformanceClaimsSessionData {
   timestamp: number
 }
 
+export interface SPDAssumptionsSessionData {
+  assumptionsList: any[]
+  selectedAssumptionId: number | null
+  nextAssumptionId: number
+  userToken: string
+  timestamp: number
+}
+
+export interface SPDThreatsSessionData {
+  threatsList: any[]
+  selectedThreatId: number | null
+  nextThreatId: number
+  userToken: string
+  timestamp: number
+}
+
+export interface SPDOSPSessionData {
+  ospList: any[]
+  selectedOspId: number | null
+  nextOspId: number
+  userToken: string
+  timestamp: number
+}
+
 class SessionService {
   private readonly STORAGE_KEY = 'ccgentool2_session'
   private readonly SAR_STORAGE_KEY = 'ccgentool2_sar_session'
@@ -85,6 +109,9 @@ class SessionService {
   private readonly TOE_OVERVIEW_STORAGE_KEY = 'ccgentool2_toeoverview_session'
   private readonly TOE_DESC_STORAGE_KEY = 'ccgentool2_toedesc_session'
   private readonly CONFORMANCE_CLAIMS_STORAGE_KEY = 'ccgentool2_conformance_session'
+  private readonly SPD_ASSUMPTIONS_STORAGE_KEY = 'ccgentool2_spd_assumptions_session'
+  private readonly SPD_THREATS_STORAGE_KEY = 'ccgentool2_spd_threats_session'
+  private readonly SPD_OSP_STORAGE_KEY = 'ccgentool2_spd_osp_session'
   private readonly TOKEN_KEY = 'ccgentool2_user_token'
   private userToken: string
 
@@ -601,6 +628,180 @@ class SessionService {
       localStorage.removeItem(storageKey)
     } catch (error) {
       console.error('Error clearing Conformance Claims data from session:', error)
+    }
+  }
+
+  /**
+   * Save SPD Assumptions data to session storage
+   */
+  saveSPDAssumptionsData(assumptionsList: any[], selectedAssumptionId: number | null, nextAssumptionId: number): void {
+    const sessionData: SPDAssumptionsSessionData = {
+      assumptionsList,
+      selectedAssumptionId,
+      nextAssumptionId,
+      userToken: this.userToken,
+      timestamp: Date.now()
+    }
+
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_ASSUMPTIONS_STORAGE_KEY)
+      localStorage.setItem(storageKey, JSON.stringify(sessionData))
+    } catch (error) {
+      console.error('Error saving SPD Assumptions data to session:', error)
+    }
+  }
+
+  /**
+   * Load SPD Assumptions data from session storage
+   */
+  loadSPDAssumptionsData(): SPDAssumptionsSessionData | null {
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_ASSUMPTIONS_STORAGE_KEY)
+      const data = localStorage.getItem(storageKey)
+
+      if (!data) {
+        return null
+      }
+
+      const sessionData: SPDAssumptionsSessionData = JSON.parse(data)
+
+      if (sessionData.userToken !== this.userToken) {
+        console.warn('Session token mismatch, ignoring stored SPD Assumptions data')
+        return null
+      }
+
+      return sessionData
+    } catch (error) {
+      console.error('Error loading SPD Assumptions data from session:', error)
+      return null
+    }
+  }
+
+  /**
+   * Clear SPD Assumptions session data
+   */
+  clearSPDAssumptionsData(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_ASSUMPTIONS_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing SPD Assumptions data from session:', error)
+    }
+  }
+
+  /**
+   * Save SPD Threats data to session storage
+   */
+  saveSPDThreatsData(threatsList: any[], selectedThreatId: number | null, nextThreatId: number): void {
+    const sessionData: SPDThreatsSessionData = {
+      threatsList,
+      selectedThreatId,
+      nextThreatId,
+      userToken: this.userToken,
+      timestamp: Date.now()
+    }
+
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_THREATS_STORAGE_KEY)
+      localStorage.setItem(storageKey, JSON.stringify(sessionData))
+    } catch (error) {
+      console.error('Error saving SPD Threats data to session:', error)
+    }
+  }
+
+  /**
+   * Load SPD Threats data from session storage
+   */
+  loadSPDThreatsData(): SPDThreatsSessionData | null {
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_THREATS_STORAGE_KEY)
+      const data = localStorage.getItem(storageKey)
+
+      if (!data) {
+        return null
+      }
+
+      const sessionData: SPDThreatsSessionData = JSON.parse(data)
+
+      if (sessionData.userToken !== this.userToken) {
+        console.warn('Session token mismatch, ignoring stored SPD Threats data')
+        return null
+      }
+
+      return sessionData
+    } catch (error) {
+      console.error('Error loading SPD Threats data from session:', error)
+      return null
+    }
+  }
+
+  /**
+   * Clear SPD Threats session data
+   */
+  clearSPDThreatsData(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_THREATS_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing SPD Threats data from session:', error)
+    }
+  }
+
+  /**
+   * Save SPD OSP data to session storage
+   */
+  saveSPDOSPData(ospList: any[], selectedOspId: number | null, nextOspId: number): void {
+    const sessionData: SPDOSPSessionData = {
+      ospList,
+      selectedOspId,
+      nextOspId,
+      userToken: this.userToken,
+      timestamp: Date.now()
+    }
+
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_OSP_STORAGE_KEY)
+      localStorage.setItem(storageKey, JSON.stringify(sessionData))
+    } catch (error) {
+      console.error('Error saving SPD OSP data to session:', error)
+    }
+  }
+
+  /**
+   * Load SPD OSP data from session storage
+   */
+  loadSPDOSPData(): SPDOSPSessionData | null {
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_OSP_STORAGE_KEY)
+      const data = localStorage.getItem(storageKey)
+
+      if (!data) {
+        return null
+      }
+
+      const sessionData: SPDOSPSessionData = JSON.parse(data)
+
+      if (sessionData.userToken !== this.userToken) {
+        console.warn('Session token mismatch, ignoring stored SPD OSP data')
+        return null
+      }
+
+      return sessionData
+    } catch (error) {
+      console.error('Error loading SPD OSP data from session:', error)
+      return null
+    }
+  }
+
+  /**
+   * Clear SPD OSP session data
+   */
+  clearSPDOSPData(): void {
+    try {
+      const storageKey = this.getNamespacedKey(this.SPD_OSP_STORAGE_KEY)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error('Error clearing SPD OSP data from session:', error)
     }
   }
 }
