@@ -27,6 +27,7 @@ export interface CoverSessionData {
     date: string
   }
   uploadedImagePath: string | null
+  uploadedImageBase64: string | null
   userToken: string
   timestamp: number
 }
@@ -309,10 +310,11 @@ class SessionService {
   /**
    * Save Cover data to session storage
    */
-  saveCoverData(form: any, uploadedImagePath: string | null): void {
+  saveCoverData(form: any, uploadedImagePath: string | null, uploadedImageBase64: string | null): void {
     const sessionData: CoverSessionData = {
       form,
       uploadedImagePath,
+      uploadedImageBase64,
       userToken: this.userToken,
       timestamp: Date.now()
     }

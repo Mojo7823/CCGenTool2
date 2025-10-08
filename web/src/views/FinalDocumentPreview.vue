@@ -22,14 +22,14 @@
         >
           {{ previewLoading ? 'Generating…' : 'Generate Preview' }}
         </button>
-        <a
+        <button
           v-if="generatedDocxPath && !previewLoading && !previewError"
-          :href="downloadUrl"
-          download="Security_Target_Document.docx"
           class="btn primary"
+          type="button"
+          @click="handleDownloadClick"
         >
           Download DOCX
-        </a>
+        </button>
       </div>
     </div>
 
@@ -111,6 +111,29 @@ interface SectionStatus {
   complete: boolean
 }
 
+interface SfrPreviewMetadata {
+  classDescription?: string
+  classLabel?: string
+}
+
+interface SfrPreviewEntry {
+  classCode?: string
+  classDescription?: string
+  className?: string
+  componentId?: string
+  componentName?: string
+  previewContent?: string
+  metadata?: SfrPreviewMetadata
+}
+
+interface SarPreviewEntry {
+  classCode?: string
+  className?: string
+  componentId?: string
+  componentName?: string
+  previewContent?: string
+}
+
 const previewLoading = ref(false)
 const previewError = ref('')
 const generatedDocxPath = ref<string | null>(null)
@@ -143,6 +166,7 @@ function hasCoverContent(data: CoverSessionData | null): boolean {
   if (!data) return false
   const form = data.form || {}
   return Boolean(
+    data.uploadedImageBase64 ||
     data.uploadedImagePath ||
     form.title ||
     form.version ||
@@ -362,6 +386,291 @@ function escapeHtml(text: string): string {
   return div.innerHTML
 }
 
+const cleanClassDescription = (description: string) =>
+  description.replace(/\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
+
+const deriveClassDescriptionFromLabel = (label: string) => {
+  const colonIndex = label.indexOf(':')
+  if (colonIndex !== -1) {
+    return label.slice(colonIndex + 1).trim()
+  }
+  return cleanClassDescription(label)
+}
+
+const getClassDescriptionForEntry = (entry: SfrPreviewEntry) => {
+  if (entry.classDescription) {
+    return entry.classDescription
+  }
+  if (entry.metadata?.classDescription) {
+    return entry.metadata.classDescription
+  }
+  if (entry.metadata?.classLabel) {
+    return deriveClassDescriptionFromLabel(entry.metadata.classLabel)
+  }
+  if (entry.className) {
+    return deriveClassDescriptionFromLabel(entry.className)
+  }
+  return entry.classCode ?? 'UNKNOWN'
+}
+
+const normalizeComponentId = (value: string | undefined) => (value ?? '').trim().toUpperCase()
+
+const uppercaseIdentifiersInHtml = (html: string) => {
+  const transform = (text: string) =>
+    text.replace(/\b([a-z][a-z0-9_.-]*[_.][a-z0-9_.-]*)\b/gi, match => match.toUpperCase())
+
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return transform(html)
+  }
+
+  const container = document.createElement('div')
+  container.innerHTML = html
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text
+    if (node.nodeValue) {
+      node.nodeValue = transform(node.nodeValue)
+    }
+  }
+
+  return container.innerHTML
+}
+
+const getSfrTemplate = () => `
+<h4>5. SECURITY REQUIREMENTS</h4>
+<p>This section defines the Security functional requirements (SFRs) and the Security assurance requirements (SARs) that fulfill the TOE. Assignment, selection, iteration and refinement operations have been made, adhering to the following conventions:</p>
+<p><strong>Assignments.</strong> They appear between square brackets. The word "assignment" is maintained and the resolution is presented in <strong><em><span style="color: #0000FF;">boldface, italic and blue color</span></em></strong>.</p>
+<p><strong>Selections.</strong> They appear between square brackets. The word "selection" is maintained and the resolution is presented in <strong><em><span style="color: #0000FF;">boldface, italic and blue color</span></em></strong>.</p>
+<p><strong>Iterations.</strong> It includes "/" and an "identifier" following requirement identifier that allows to distinguish the iterations of the requirement. Example: FCS_COP.1/XXX.</p>
+<p><strong>Refinements:</strong> the text where the refinement has been done is shown <strong><em><span style="color: #FF6B6B;">bold, italic, and light red color</span></em></strong>. Where part of the content of a SFR component has been removed, the removed text is shown in <strong><em><span style="color: #FF6B6B;"><s>bold, italic, light red color and crossed out</s></span></em></strong>.</p>
+<h4>5.1 Security Functional Requirements</h4>
+`
+
+function buildSfrPreviewHtml(entries: SfrPreviewEntry[]): string {
+  const template = getSfrTemplate()
+
+  if (!entries.length) {
+    return template
+  }
+
+  const grouped: Record<string, { description: string; items: SfrPreviewEntry[] }> = {}
+
+  entries.forEach(entry => {
+    const classCode = entry.classCode || 'UNKNOWN'
+    if (!grouped[classCode]) {
+      grouped[classCode] = {
+        description: getClassDescriptionForEntry(entry),
+        items: [],
+      }
+    }
+    grouped[classCode].items.push(entry)
+  })
+
+  let sectionsHtml = ''
+  let classIndex = 1
+
+  Object.keys(grouped).forEach(classCode => {
+    const data = grouped[classCode]
+    const classDescription = data.description || classCode
+    sectionsHtml += `
+<h5>5.1.${classIndex} ${classCode}: ${classDescription}</h5>
+`
+
+    let componentIndex = 1
+    data.items.forEach(item => {
+      const componentId = normalizeComponentId(item.componentId)
+      const componentTitle = item.componentName
+        ? `${componentId} : ${item.componentName}`
+        : componentId
+      sectionsHtml += `
+<h6>5.1.${classIndex}.${componentIndex} ${componentTitle}</h6>
+<div style="margin-left: 20px;">
+${item.previewContent ?? ''}
+</div>
+`
+      componentIndex += 1
+    })
+
+    classIndex += 1
+  })
+
+  return uppercaseIdentifiersInHtml(template + sectionsHtml)
+}
+
+const formatAssuranceComponentLabel = (componentId: string | undefined, componentName?: string) => {
+  const normalizedId = normalizeComponentId(componentId)
+  const trimmedName = componentName?.trim()
+  return trimmedName ? `${normalizedId} : ${trimmedName}` : normalizedId
+}
+
+const formatComponentHeading = (componentId: string | undefined, componentName?: string) => {
+  const normalizedId = normalizeComponentId(componentId)
+  const trimmedName = componentName?.trim()
+  return trimmedName ? `${normalizedId} – ${trimmedName}` : normalizedId
+}
+
+const formatClassHeading = (className: string | undefined, classCode: string) => {
+  const trimmed = className?.trim() ?? ''
+  if (!trimmed) {
+    return classCode
+  }
+
+  const colonIndex = trimmed.indexOf(':')
+  if (colonIndex !== -1) {
+    const descriptor = trimmed.slice(colonIndex + 1).trim()
+    if (descriptor) {
+      return `${descriptor} (${classCode})`
+    }
+  }
+
+  return `${trimmed} (${classCode})`
+}
+
+const getSarTemplate = (ealLevel: string) => `
+<h4>5. SECURITY REQUIREMENTS</h4>
+<h4>5.2 SECURITY ASSURANCE REQUIREMENTS</h4>
+<p>The development and the evaluation of the TOE shall be done in accordance to the following security assurance requirements: <code>${escapeHtml(ealLevel)}</code> as specified in Part 5 of the Common Criteria.</p>
+<p>No operations are applied to the assurance components.</p>
+<p>The TOE shall meet the following security assurance requirements:</p>
+`
+
+const buildSarTableHtml = (classOrder: string[], groups: Record<string, { className: string; sars: SarPreviewEntry[] }>) => {
+  let rowsHtml = ''
+
+  if (classOrder.length === 0) {
+    rowsHtml += `
+      <tr>
+        <td colspan="2" class="sar-preview-table__empty">No Security Assurance Requirements selected.</td>
+      </tr>
+    `
+  } else {
+    classOrder.forEach(classCode => {
+      const classData = groups[classCode]
+      if (!classData) {
+        return
+      }
+
+      const sarEntries = classData.sars ?? []
+
+      if (sarEntries.length === 0) {
+        rowsHtml += `
+          <tr>
+            <td class="sar-preview-table__class-cell">${escapeHtml(classData.className)}</td>
+            <td class="sar-preview-table__note">No assurance components recorded.</td>
+          </tr>
+        `
+        return
+      }
+
+      sarEntries.forEach((sar, index) => {
+        const componentLabel = escapeHtml(formatAssuranceComponentLabel(sar.componentId, sar.componentName))
+        const classCell =
+          index === 0
+            ? `<td class="sar-preview-table__class-cell" rowspan="${sarEntries.length}">${escapeHtml(classData.className)}</td>`
+            : ''
+
+        rowsHtml += `
+          <tr>
+            ${classCell}
+            <td class="sar-preview-table__component">${componentLabel}</td>
+          </tr>
+        `
+      })
+    })
+  }
+
+  return `
+    <div class="sar-preview-table-wrapper">
+      <table class="sar-preview-table">
+        <thead>
+          <tr>
+            <th scope="col">SAR Class</th>
+            <th scope="col">Assurance Components</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+    </div>
+    <p class="sar-preview-table-caption">Table 7 Security Assurance Components</p>
+  `
+}
+
+const buildSarSectionsHtml = (classOrder: string[], groups: Record<string, { className: string; sars: SarPreviewEntry[] }>) => {
+  if (classOrder.length === 0) {
+    return '<p class="sar-preview-empty">No Security Assurance Requirements have been defined.</p>'
+  }
+
+  let html = ''
+  let classIndex = 1
+
+  classOrder.forEach(classCode => {
+    const classData = groups[classCode]
+    if (!classData) {
+      return
+    }
+
+    const headingText = escapeHtml(formatClassHeading(classData.className, classCode))
+    html += `
+      <section class="sar-preview-class">
+        <h5 class="sar-preview-section-heading">5.3.${classIndex} ${headingText}</h5>
+    `
+
+    if (!classData.sars.length) {
+      html += '<p class="sar-preview-note">No assurance components documented for this class.</p>'
+      html += '</section>'
+      classIndex += 1
+      return
+    }
+
+    classData.sars.forEach(sar => {
+      const componentHeading = escapeHtml(formatComponentHeading(sar.componentId, sar.componentName))
+      const content =
+        sar.previewContent && sar.previewContent.trim().length > 0
+          ? sar.previewContent
+          : '<p class="sar-preview-note">No component details provided.</p>'
+
+      html += `
+        <div class="sar-preview-component">
+          <p class="sar-preview-component__title">${componentHeading}</p>
+          <div class="sar-preview-component__body">${content}</div>
+        </div>
+      `
+    })
+
+    html += '</section>'
+    classIndex += 1
+  })
+
+  return html
+}
+
+function buildSarPreviewHtml(entries: SarPreviewEntry[], selectedEal: string | undefined): string {
+  const template = getSarTemplate(selectedEal || 'EAL 1')
+
+  const groups: Record<string, { className: string; sars: SarPreviewEntry[] }> = {}
+  const classOrder: string[] = []
+
+  entries.forEach(entry => {
+    const key = entry.classCode || 'UNKNOWN'
+    if (!groups[key]) {
+      groups[key] = {
+        className: entry.className || key,
+        sars: [],
+      }
+      classOrder.push(key)
+    }
+    groups[key].sars.push(entry)
+  })
+
+  const tableHtml = buildSarTableHtml(classOrder, groups)
+  const sectionsHtml = buildSarSectionsHtml(classOrder, groups)
+
+  return uppercaseIdentifiersInHtml(template + tableHtml + sectionsHtml)
+}
+
 async function generatePreview() {
   updateSectionStatus()
 
@@ -388,6 +697,11 @@ async function generatePreview() {
     const sfrData = sessionService.loadSfrData()
     const sarData = sessionService.loadSarData()
 
+    const sfrList = (sfrData?.sfrList as SfrPreviewEntry[] | undefined) ?? []
+    const sarList = (sarData?.sarList as SarPreviewEntry[] | undefined) ?? []
+    const sfrHtml = sfrList.length ? buildSfrPreviewHtml(sfrList) : ''
+    const sarHtml = sarList.length ? buildSarPreviewHtml(sarList, sarData?.selectedEal) : ''
+
     const payload = {
       user_id: userToken.value,
       cover_data: coverData
@@ -399,6 +713,7 @@ async function generatePreview() {
             manufacturer: coverData.form.manufacturer,
             date: coverData.form.date,
             image_path: coverData.uploadedImagePath,
+            image_base64: coverData.uploadedImageBase64,
           }
         : null,
       st_reference_html: stReferenceHTML || null,
@@ -407,7 +722,9 @@ async function generatePreview() {
       toe_description_html: toeDescriptionHTML || null,
       conformance_claims_html: conformanceClaimsHTML || null,
       sfr_list: sfrData?.sfrList || [],
+      sfr_html: sfrHtml || null,
       sar_list: sarData?.sarList || [],
+      sar_html: sarHtml || null,
       selected_eal: sarData?.selectedEal || null,
     }
 
@@ -428,6 +745,21 @@ async function generatePreview() {
   } finally {
     previewLoading.value = false
   }
+}
+
+function handleDownloadClick() {
+  if (!downloadUrl.value) {
+    return
+  }
+
+  const anchor = document.createElement('a')
+  anchor.href = downloadUrl.value
+  anchor.download = 'Security_Target_Document.docx'
+  anchor.target = '_blank'
+  anchor.rel = 'noopener'
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
 }
 
 async function renderDocxPreview(path: string) {
