@@ -58,6 +58,12 @@ ST_INTRO_DOCX_ROOT = Path(os.getenv("ST_INTRO_DOCX_DIR", Path(tempfile.gettempdi
 ST_INTRO_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 FINAL_DOCX_ROOT = Path(os.getenv("FINAL_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_final_docx"))
 FINAL_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+SPD_ASSUMPTIONS_DOCX_ROOT = Path(os.getenv("SPD_ASSUMPTIONS_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_spd_assumptions_docx"))
+SPD_ASSUMPTIONS_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+SPD_THREATS_DOCX_ROOT = Path(os.getenv("SPD_THREATS_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_spd_threats_docx"))
+SPD_THREATS_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+SPD_OSP_DOCX_ROOT = Path(os.getenv("SPD_OSP_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_spd_osp_docx"))
+SPD_OSP_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 
 USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -126,6 +132,9 @@ class FinalPreviewRequest(BaseModel):
     toe_reference_html: Optional[str] = None
     toe_overview_html: Optional[str] = None
     toe_description_html: Optional[str] = None
+    assumptions_html: Optional[str] = None
+    threats_html: Optional[str] = None
+    osp_html: Optional[str] = None
     conformance_claims_html: Optional[str] = None
     sfr_list: List[dict] = Field(default_factory=list)
     sar_list: List[dict] = Field(default_factory=list)
@@ -844,7 +853,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
 
     # Page 2: Add ST Introduction heading
     heading = document.add_paragraph()
-    heading_run = heading.add_run("1. Security Target Introduction")
+    heading_run = heading.add_run("2. Security Target Introduction")
     heading_run.font.size = Pt(20)
     heading_run.font.bold = True
     heading.space_after = Pt(12)
@@ -861,7 +870,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     # Add ST Reference section
     if payload.st_reference_html:
         st_ref_heading = document.add_paragraph()
-        st_ref_run = st_ref_heading.add_run("1.1 ST Reference")
+        st_ref_run = st_ref_heading.add_run("2.1 ST Reference")
         st_ref_run.font.size = Pt(18)
         st_ref_run.font.bold = True
         st_ref_heading.space_before = Pt(12)
@@ -871,7 +880,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     # Page 3: Add TOE Reference section
     if payload.toe_reference_html:
         toe_ref_heading = document.add_paragraph()
-        toe_ref_run = toe_ref_heading.add_run("1.2 TOE Reference")
+        toe_ref_run = toe_ref_heading.add_run("2.2 TOE Reference")
         toe_ref_run.font.size = Pt(18)
         toe_ref_run.font.bold = True
         toe_ref_heading.space_before = Pt(12)
@@ -881,7 +890,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     # Page 4: Add TOE Overview section
     if payload.toe_overview_html:
         toe_overview_heading = document.add_paragraph()
-        toe_overview_run = toe_overview_heading.add_run("1.3 TOE Overview")
+        toe_overview_run = toe_overview_heading.add_run("2.3 TOE Overview")
         toe_overview_run.font.size = Pt(18)
         toe_overview_run.font.bold = True
         toe_overview_heading.space_before = Pt(12)
@@ -891,18 +900,52 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     # Page 5: Add TOE Description section
     if payload.toe_description_html:
         toe_desc_heading = document.add_paragraph()
-        toe_desc_run = toe_desc_heading.add_run("1.4 TOE Description")
+        toe_desc_run = toe_desc_heading.add_run("2.4 TOE Description")
         toe_desc_run.font.size = Pt(18)
         toe_desc_run.font.bold = True
         toe_desc_heading.space_before = Pt(12)
         toe_desc_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_description_html)
 
+    # Add Security Problem Definition section (Section 3)
+    has_spd_content = payload.assumptions_html or payload.threats_html or payload.osp_html
+    if has_spd_content:
+        document.add_page_break()
+        spd_heading = document.add_paragraph()
+        spd_run = spd_heading.add_run("3. Security Problem Definition")
+        spd_run.font.size = Pt(20)
+        spd_run.font.bold = True
+        spd_heading.space_before = Pt(12)
+        spd_heading.space_after = Pt(12)
+
+        # Add SPD introduction
+        spd_intro = (
+            "This chapter identifies the following:\n"
+            "• Significant assumptions about the TOE's operational environment.\n"
+            "• Threats that must be countered by the TOE or its environment\n\n"
+            "This document identifies assumptions as A.assumption with \"assumption\" specifying a unique name. "
+            "Threats are identified as T.threat with \"threat\" specifying a unique name"
+        )
+        spd_intro_para = document.add_paragraph(spd_intro)
+        spd_intro_para.space_after = Pt(12)
+
+        # Add Assumptions subsection
+        if payload.assumptions_html:
+            _append_html_to_document(document, payload.assumptions_html)
+
+        # Add Threats subsection
+        if payload.threats_html:
+            _append_html_to_document(document, payload.threats_html)
+
+        # Add OSP subsection
+        if payload.osp_html:
+            _append_html_to_document(document, payload.osp_html)
+
     # Page 6: Add Conformance Claims section
     if payload.conformance_claims_html:
         document.add_page_break()
         conf_heading = document.add_paragraph()
-        conf_run = conf_heading.add_run("2. Conformance Claims")
+        conf_run = conf_heading.add_run("4. Conformance Claims")
         conf_run.font.size = Pt(20)
         conf_run.font.bold = True
         conf_heading.space_before = Pt(12)
@@ -913,7 +956,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     if payload.sfr_preview_html or (payload.sfr_list and len(payload.sfr_list) > 0):
         document.add_page_break()
         sfr_heading = document.add_paragraph()
-        sfr_run = sfr_heading.add_run("3. Security Functional Requirements")
+        sfr_run = sfr_heading.add_run("5. Security Functional Requirements")
         sfr_run.font.size = Pt(20)
         sfr_run.font.bold = True
         sfr_heading.space_before = Pt(12)
@@ -931,7 +974,7 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     if payload.sar_preview_html or (payload.sar_list and len(payload.sar_list) > 0):
         document.add_page_break()
         sar_heading = document.add_paragraph()
-        sar_run = sar_heading.add_run("4. Security Assurance Requirements")
+        sar_run = sar_heading.add_run("5. Security Assurance Requirements")
         sar_run.font.size = Pt(20)
         sar_run.font.bold = True
         sar_heading.space_before = Pt(12)
@@ -987,6 +1030,9 @@ app.mount("/cover/docx", StaticFiles(directory=str(COVER_DOCX_ROOT)), name="cove
 app.mount("/security/sfr/docx", StaticFiles(directory=str(SFR_DOCX_ROOT)), name="sfr-docx")
 app.mount("/security/sar/docx", StaticFiles(directory=str(SAR_DOCX_ROOT)), name="sar-docx")
 app.mount("/st-intro/docx", StaticFiles(directory=str(ST_INTRO_DOCX_ROOT)), name="st-intro-docx")
+app.mount("/spd/assumptions/docx", StaticFiles(directory=str(SPD_ASSUMPTIONS_DOCX_ROOT)), name="spd-assumptions-docx")
+app.mount("/spd/threats/docx", StaticFiles(directory=str(SPD_THREATS_DOCX_ROOT)), name="spd-threats-docx")
+app.mount("/spd/osp/docx", StaticFiles(directory=str(SPD_OSP_DOCX_ROOT)), name="spd-osp-docx")
 app.mount("/final-preview/docx", StaticFiles(directory=str(FINAL_DOCX_ROOT)), name="final-docx")
 
 
@@ -1503,6 +1549,57 @@ async def cleanup_sar_preview(user_id: str):
 @app.delete("/st-intro/preview/{user_id}")
 async def cleanup_st_intro_preview(user_id: str):
     docx_dir = _get_preview_docx_dir(ST_INTRO_DOCX_ROOT, user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.post("/spd/assumptions/preview")
+async def generate_spd_assumptions_preview(payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_html_preview_document(payload.html_content, payload.user_id, SPD_ASSUMPTIONS_DOCX_ROOT)
+    return {"path": f"/spd/assumptions/docx/{payload.user_id}/{output_path.name}"}
+
+
+@app.post("/spd/threats/preview")
+async def generate_spd_threats_preview(payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_html_preview_document(payload.html_content, payload.user_id, SPD_THREATS_DOCX_ROOT)
+    return {"path": f"/spd/threats/docx/{payload.user_id}/{output_path.name}"}
+
+
+@app.post("/spd/osp/preview")
+async def generate_spd_osp_preview(payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_html_preview_document(payload.html_content, payload.user_id, SPD_OSP_DOCX_ROOT)
+    return {"path": f"/spd/osp/docx/{payload.user_id}/{output_path.name}"}
+
+
+@app.delete("/spd/assumptions/preview/{user_id}")
+async def cleanup_spd_assumptions_preview(user_id: str):
+    docx_dir = _get_preview_docx_dir(SPD_ASSUMPTIONS_DOCX_ROOT, user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.delete("/spd/threats/preview/{user_id}")
+async def cleanup_spd_threats_preview(user_id: str):
+    docx_dir = _get_preview_docx_dir(SPD_THREATS_DOCX_ROOT, user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.delete("/spd/osp/preview/{user_id}")
+async def cleanup_spd_osp_preview(user_id: str):
+    docx_dir = _get_preview_docx_dir(SPD_OSP_DOCX_ROOT, user_id, create=False)
     if docx_dir.exists():
         shutil.rmtree(docx_dir)
     return {"status": "deleted"}
