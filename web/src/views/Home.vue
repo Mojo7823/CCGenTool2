@@ -53,6 +53,9 @@ function saveProject() {
       conformanceClaimsData: sessionService.loadConformanceClaimsData(),
       sfrData: sessionService.loadSfrData(),
       sarData: sessionService.loadSarData(),
+      assumptionsData: sessionService.loadAssumptionsData(),
+      threatsData: sessionService.loadThreatsData(),
+      ospData: sessionService.loadOspData(),
       exportedAt: new Date().toISOString(),
     }
 
@@ -90,7 +93,8 @@ function loadProject(event: Event) {
         sessionService.saveCoverData(
           projectData.coverData.form,
           projectData.coverData.uploadedImagePath,
-          projectData.coverData.uploadedImageData || null
+          projectData.coverData.uploadedImageData || null,
+          projectData.coverData.uploadedImageName || null,
         )
       }
       if (projectData.stReferenceData) {
@@ -146,6 +150,36 @@ function loadProject(event: Event) {
           projectData.sarData.nextSarId,
           projectData.sarData.selectedEal
         )
+      }
+      if (projectData.assumptionsData) {
+        const items = Array.isArray(projectData.assumptionsData.items)
+          ? projectData.assumptionsData.items
+          : []
+        const nextId =
+          typeof projectData.assumptionsData.nextId === 'number'
+            ? projectData.assumptionsData.nextId
+            : items.length + 1
+        sessionService.saveAssumptionsData(items, nextId)
+      }
+      if (projectData.threatsData) {
+        const items = Array.isArray(projectData.threatsData.items)
+          ? projectData.threatsData.items
+          : []
+        const nextId =
+          typeof projectData.threatsData.nextId === 'number'
+            ? projectData.threatsData.nextId
+            : items.length + 1
+        sessionService.saveThreatsData(items, nextId)
+      }
+      if (projectData.ospData) {
+        const items = Array.isArray(projectData.ospData.items)
+          ? projectData.ospData.items
+          : []
+        const nextId =
+          typeof projectData.ospData.nextId === 'number'
+            ? projectData.ospData.nextId
+            : items.length + 1
+        sessionService.saveOspData(items, nextId)
       }
 
       showStatus('Project loaded successfully!', 'success')

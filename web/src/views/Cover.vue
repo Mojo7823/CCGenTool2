@@ -119,6 +119,8 @@ const uploading = ref(false)
 const uploadError = ref('')
 const uploadedImagePath = ref<string | null>(null)
 const uploadedImageData = ref<string | null>(null)
+const uploadedImageName = ref<string | null>(null)
+const requiresImageSync = ref(false)
 const showPreview = ref(false)
 const previewLoading = ref(false)
 const previewError = ref('')
@@ -138,7 +140,11 @@ const form = reactive({
 const userToken = ref('')
 
 const hasPreview = computed(
-  () => !!uploadedImagePath.value || !!uploadedImageData.value || !!form.title || !!form.description
+  () =>
+    !!uploadedImagePath.value ||
+    !!uploadedImageData.value ||
+    !!form.title ||
+    !!form.description
 )
 const imageUrl = computed(() => {
   if (uploadedImageData.value) {
@@ -149,7 +155,12 @@ const imageUrl = computed(() => {
 })
 
 function saveSessionData() {
-  sessionService.saveCoverData(form, uploadedImagePath.value, uploadedImageData.value)
+  sessionService.saveCoverData(
+    form,
+    uploadedImagePath.value,
+    uploadedImageData.value,
+    uploadedImageName.value,
+  )
 }
 
 function loadSessionData() {
@@ -158,8 +169,19 @@ function loadSessionData() {
     Object.assign(form, data.form)
     uploadedImagePath.value = data.uploadedImagePath
     uploadedImageData.value = data.uploadedImageData || null
-    if (data.uploadedImagePath) {
-      hasUploaded.value = true
+    uploadedImageName.value = data.uploadedImageName || null
+
+    const hasDataUrl = !!uploadedImageData.value
+    const pathMatchesUser =
+      !!uploadedImagePath.value && uploadedImagePath.value.includes(userToken.value)
+
+    if (hasDataUrl && !pathMatchesUser) {
+      requiresImageSync.value = true
+      uploadedImagePath.value = null
+      hasUploaded.value = false
+    } else {
+      requiresImageSync.value = hasDataUrl && !uploadedImagePath.value
+      hasUploaded.value = !!uploadedImagePath.value && pathMatchesUser
     }
   }
 }
@@ -174,6 +196,10 @@ watch(uploadedImagePath, () => {
 })
 
 watch(uploadedImageData, () => {
+  saveSessionData()
+})
+
+watch(uploadedImageName, () => {
   saveSessionData()
 })
 
@@ -202,8 +228,8 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
-async function uploadFile(file: File) {
-  if (!userToken.value) return
+async function uploadFile(file: File): Promise<boolean> {
+  if (!userToken.value) return false
   uploading.value = true
   uploadError.value = ''
   try {
@@ -217,13 +243,16 @@ async function uploadFile(file: File) {
     })
     uploadedImagePath.value = response.data.path
     uploadedImageData.value = base64
+    uploadedImageName.value = file.name
     hasUploaded.value = true
+    requiresImageSync.value = false
+    resetUploadState()
+    return true
   } catch (error: any) {
     console.error('Upload failed', error)
     resetUploadState(error?.response?.data?.detail || error?.message || 'Failed to upload image.')
-    return
+    return false
   }
-  resetUploadState()
 }
 
 function handleFileSelection(event: Event) {
@@ -237,6 +266,47 @@ function handleDrop(event: DragEvent) {
   const files = event.dataTransfer?.files
   if (!files || !files.length) return
   uploadFile(files[0])
+}
+
+function dataUrlToFile(dataUrl: string, fallbackName?: string): File {
+  const [metadata, base64Data] = dataUrl.split(',')
+  if (!base64Data) {
+    throw new Error('Invalid image data URL')
+  }
+  const mimeMatch = metadata.match(/data:(.*?);/)
+  const mimeType = mimeMatch ? mimeMatch[1] : 'image/png'
+  const binaryString = atob(base64Data)
+  const len = binaryString.length
+  const bytes = new Uint8Array(len)
+  for (let i = 0; i < len; i += 1) {
+    bytes[i] = binaryString.charCodeAt(i)
+  }
+  const extension = mimeType.split('/')[1] || 'png'
+  const fileName = fallbackName || `cover-image.${extension}`
+  return new File([bytes], fileName, { type: mimeType })
+}
+
+async function ensureCoverImageUploaded() {
+  if (!uploadedImageData.value) {
+    return
+  }
+
+  const pathMatchesUser =
+    !!uploadedImagePath.value && uploadedImagePath.value.includes(userToken.value)
+
+  if (!requiresImageSync.value && uploadedImagePath.value && pathMatchesUser) {
+    return
+  }
+
+  try {
+    const file = dataUrlToFile(uploadedImageData.value, uploadedImageName.value || undefined)
+    const success = await uploadFile(file)
+    if (!success) {
+      throw new Error('Failed to restore the cover image. Please upload it again.')
+    }
+  } catch (error: any) {
+    throw new Error(error?.message || 'Failed to restore the cover image. Please upload it again.')
+  }
 }
 
 async function openPreview() {
@@ -256,6 +326,10 @@ async function openPreview() {
   previewLoading.value = true
 
   try {
+    if (uploadedImageData.value) {
+      await ensureCoverImageUploaded()
+    }
+
     const payload = {
       user_id: userToken.value,
       title: form.title,
@@ -330,6 +404,8 @@ function cleanupUploads(keepalive = false) {
     hasUploaded.value = false
     uploadedImagePath.value = null
     uploadedImageData.value = null
+    uploadedImageName.value = null
+    requiresImageSync.value = false
   }
 
   cleanupDocx(keepalive)

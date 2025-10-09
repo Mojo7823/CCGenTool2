@@ -41,16 +41,16 @@
       <ul class="status-list">
         <li v-for="section in sectionStatus" :key="section.key">
           <span class="status-label">{{ section.label }}</span>
-          <span :class="['status-indicator', section.complete ? 'completed' : 'missing']">
-            {{ section.complete ? 'Completed' : 'Missing' }}
+          <span :class="['status-indicator', statusClass(section)]">
+            {{ statusLabel(section) }}
           </span>
         </li>
       </ul>
       <div v-if="missingSections.length" class="status-warning">
-        Please complete the following sections before generating the final document:
+        Please complete the following required sections before generating the final document:
         <span>{{ missingSections.join(', ') }}</span>
       </div>
-      <div v-else class="status-success">All sections are complete.</div>
+      <div v-else class="status-success">All required sections are complete.</div>
     </div>
 
     <div class="card preview-card">
@@ -93,6 +93,9 @@ import {
   type ConformanceClaimsSessionData,
   type SessionData,
   type SarSessionData,
+  type AssumptionsSessionData,
+  type ThreatsSessionData,
+  type OspSessionData,
 } from '../services/sessionService'
 import {
   buildSarPreviewHtml,
@@ -100,13 +103,22 @@ import {
   type SarPreviewEntry,
   type SfrPreviewEntry,
 } from '../utils/securityPreview'
+import {
+  buildSecurityProblemDefinitionHtml,
+  hasAssumptions,
+  hasOsp,
+  hasThreats,
+} from '../utils/spdPreview'
 
-type SectionKey = 
-  | 'cover' 
-  | 'st-reference' 
-  | 'toe-reference' 
-  | 'toe-overview' 
+type SectionKey =
+  | 'cover'
+  | 'st-reference'
+  | 'toe-reference'
+  | 'toe-overview'
   | 'toe-description'
+  | 'assumptions'
+  | 'threats'
+  | 'osp'
   | 'conformance-claims'
   | 'sfr'
   | 'sar'
@@ -115,6 +127,7 @@ interface SectionStatus {
   key: SectionKey
   label: string
   complete: boolean
+  optional?: boolean
 }
 
 const previewLoading = ref(false)
@@ -129,16 +142,42 @@ const sectionStatus = ref<SectionStatus[]>([
   { key: 'toe-reference', label: 'TOE Reference', complete: false },
   { key: 'toe-overview', label: 'TOE Overview', complete: false },
   { key: 'toe-description', label: 'TOE Description', complete: false },
+  { key: 'assumptions', label: 'Assumptions', complete: false },
+  { key: 'threats', label: 'Threats', complete: false },
+  {
+    key: 'osp',
+    label: 'Organisational Security Policies (Optional)',
+    complete: true,
+    optional: true,
+  },
   { key: 'conformance-claims', label: 'Conformance Claims', complete: false },
   { key: 'sfr', label: 'Security Functional Requirements', complete: false },
   { key: 'sar', label: 'Security Assurance Requirements', complete: false },
 ])
 
-const missingSections = computed(() => 
-  sectionStatus.value.filter(section => !section.complete).map(section => section.label)
+const missingSections = computed(() =>
+  sectionStatus.value
+    .filter(section => !section.complete && !section.optional)
+    .map(section => section.label)
 )
 
-const hasData = computed(() => sectionStatus.value.some(section => section.complete))
+const hasData = computed(() =>
+  sectionStatus.value.some(section => section.complete && !section.optional)
+)
+
+function statusLabel(section: SectionStatus): string {
+  if (section.optional && !section.complete) {
+    return 'Optional'
+  }
+  return section.complete ? 'Completed' : 'Missing'
+}
+
+function statusClass(section: SectionStatus): string {
+  if (section.optional && !section.complete) {
+    return 'optional'
+  }
+  return section.complete ? 'completed' : 'missing'
+}
 
 const downloadUrl = computed(() => {
   if (!generatedDocxPath.value || !userToken.value) return ''
@@ -196,6 +235,18 @@ function hasConformanceClaimsContent(data: ConformanceClaimsSessionData | null):
   return Boolean(data.ccConformance || data.ppClaims || data.additionalNotes)
 }
 
+function hasAssumptionsContent(data: AssumptionsSessionData | null): boolean {
+  return hasAssumptions(data?.items)
+}
+
+function hasThreatsContent(data: ThreatsSessionData | null): boolean {
+  return hasThreats(data?.items)
+}
+
+function hasOspContent(data: OspSessionData | null): boolean {
+  return hasOsp(data?.items)
+}
+
 function hasSFRContent(data: SessionData | null): boolean {
   if (!data) return false
   return Boolean(data.sfrList && data.sfrList.length > 0)
@@ -215,6 +266,9 @@ function updateSectionStatus() {
   const conformanceClaimsData = sessionService.loadConformanceClaimsData()
   const sfrData = sessionService.loadSfrData()
   const sarData = sessionService.loadSarData()
+  const assumptionsData = sessionService.loadAssumptionsData()
+  const threatsData = sessionService.loadThreatsData()
+  const ospData = sessionService.loadOspData()
 
   sectionStatus.value = [
     { key: 'cover', label: 'Cover', complete: hasCoverContent(coverData) },
@@ -222,6 +276,14 @@ function updateSectionStatus() {
     { key: 'toe-reference', label: 'TOE Reference', complete: hasTOEReferenceContent(toeReferenceData) },
     { key: 'toe-overview', label: 'TOE Overview', complete: hasTOEOverviewContent(toeOverviewData) },
     { key: 'toe-description', label: 'TOE Description', complete: hasTOEDescriptionContent(toeDescriptionData) },
+    { key: 'assumptions', label: 'Assumptions', complete: hasAssumptionsContent(assumptionsData) },
+    { key: 'threats', label: 'Threats', complete: hasThreatsContent(threatsData) },
+    {
+      key: 'osp',
+      label: 'Organisational Security Policies (Optional)',
+      complete: hasOspContent(ospData),
+      optional: true,
+    },
     { key: 'conformance-claims', label: 'Conformance Claims', complete: hasConformanceClaimsContent(conformanceClaimsData) },
     { key: 'sfr', label: 'Security Functional Requirements', complete: hasSFRContent(sfrData) },
     { key: 'sar', label: 'Security Assurance Requirements', complete: hasSARContent(sarData) },
@@ -374,6 +436,68 @@ function escapeHtml(text: string): string {
   return div.innerHTML
 }
 
+function dataUrlToFile(dataUrl: string, fallbackName?: string): File {
+  const [metadata, base64Data] = dataUrl.split(',')
+  if (!base64Data) {
+    throw new Error('Invalid image data URL')
+  }
+  const mimeMatch = metadata.match(/data:(.*?);/)
+  const mimeType = mimeMatch ? mimeMatch[1] : 'image/png'
+  const binaryString = atob(base64Data)
+  const bytes = new Uint8Array(binaryString.length)
+  for (let i = 0; i < binaryString.length; i += 1) {
+    bytes[i] = binaryString.charCodeAt(i)
+  }
+  const extension = mimeType.split('/')[1] || 'png'
+  const fileName = fallbackName || `cover-image.${extension}`
+  return new File([bytes], fileName, { type: mimeType })
+}
+
+async function ensureCoverImageForPreview(
+  coverData: CoverSessionData | null,
+  userId: string,
+): Promise<CoverSessionData | null> {
+  if (!coverData) {
+    return null
+  }
+
+  const pathMatchesUser =
+    !!coverData.uploadedImagePath && coverData.uploadedImagePath.includes(userId)
+
+  if (!coverData.uploadedImageData || (coverData.uploadedImagePath && pathMatchesUser)) {
+    return coverData
+  }
+
+  const file = dataUrlToFile(coverData.uploadedImageData, coverData.uploadedImageName || undefined)
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await api.post('/cover/upload', formData, {
+    params: { user_id: userId },
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+
+  const newPath: string | undefined = response.data?.path
+  if (!newPath) {
+    throw new Error('Cover image upload did not return a path.')
+  }
+
+  const updatedCover: CoverSessionData = {
+    ...coverData,
+    uploadedImagePath: newPath,
+    uploadedImageName: file.name,
+  }
+
+  sessionService.saveCoverData(
+    updatedCover.form,
+    updatedCover.uploadedImagePath,
+    updatedCover.uploadedImageData || null,
+    updatedCover.uploadedImageName || null,
+  )
+
+  return updatedCover
+}
+
 async function generatePreview() {
   updateSectionStatus()
 
@@ -391,7 +515,10 @@ async function generatePreview() {
   hasGeneratedDocx.value = false
 
   try {
-    const coverData = sessionService.loadCoverData()
+    let coverData = sessionService.loadCoverData()
+    if (coverData) {
+      coverData = await ensureCoverImageForPreview(coverData, userToken.value)
+    }
     const stReferenceHTML = buildSTReferenceHTML()
     const toeReferenceHTML = buildTOEReferenceHTML()
     const toeOverviewHTML = buildTOEOverviewHTML()
@@ -399,13 +526,28 @@ async function generatePreview() {
     const conformanceClaimsHTML = buildConformanceClaimsHTML()
     const sfrData = sessionService.loadSfrData()
     const sarData = sessionService.loadSarData()
+    const assumptionsData = sessionService.loadAssumptionsData()
+    const threatsData = sessionService.loadThreatsData()
+    const ospData = sessionService.loadOspData()
 
     const sfrEntries = (sfrData?.sfrList || []) as unknown as SfrPreviewEntry[]
     const sarEntries = (sarData?.sarList || []) as unknown as SarPreviewEntry[]
 
+    const spdHtml = buildSecurityProblemDefinitionHtml(
+      {
+        assumptions: assumptionsData?.items ?? [],
+        threats: threatsData?.items ?? [],
+        osp: ospData?.items ?? [],
+      },
+      {
+        rootSectionNumber: 2,
+        includeRootHeading: false,
+      },
+    )
+
     const sfrPreviewHtml = sfrEntries.length
       ? buildSfrPreviewHtml(sfrEntries, {
-          rootSectionNumber: 3,
+          rootSectionNumber: 4,
           includeRootHeading: false,
           includeFunctionalHeading: false,
         })
@@ -438,6 +580,7 @@ async function generatePreview() {
       toe_overview_html: toeOverviewHTML || null,
       toe_description_html: toeDescriptionHTML || null,
       conformance_claims_html: conformanceClaimsHTML || null,
+      spd_html: spdHtml || null,
       sfr_list: sfrData?.sfrList || [],
       sar_list: sarData?.sarList || [],
       selected_eal: sarData?.selectedEal || null,
@@ -496,6 +639,9 @@ function saveProjectAsJSON() {
     conformanceClaimsData: sessionService.loadConformanceClaimsData(),
     sfrData: sessionService.loadSfrData(),
     sarData: sessionService.loadSarData(),
+    assumptionsData: sessionService.loadAssumptionsData(),
+    threatsData: sessionService.loadThreatsData(),
+    ospData: sessionService.loadOspData(),
     exportedAt: new Date().toISOString(),
   }
 
@@ -669,6 +815,12 @@ onBeforeUnmount(() => {
   background: rgba(239, 68, 68, 0.15);
   color: #f87171;
   border-color: rgba(239, 68, 68, 0.4);
+}
+
+.status-indicator.optional {
+  background: rgba(250, 204, 21, 0.15);
+  color: #fde68a;
+  border-color: rgba(250, 204, 21, 0.4);
 }
 
 .status-warning {
