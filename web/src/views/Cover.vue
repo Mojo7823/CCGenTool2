@@ -111,7 +111,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
-import { sessionService } from '../services/sessionService'
+import { sessionService, type CoverSessionData } from '../services/sessionService'
+import { ensureCoverImagePath } from '../utils/coverImage'
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragActive = ref(false)
@@ -152,15 +153,42 @@ function saveSessionData() {
   sessionService.saveCoverData(form, uploadedImagePath.value, uploadedImageData.value)
 }
 
-function loadSessionData() {
-  const data = sessionService.loadCoverData()
-  if (data) {
-    Object.assign(form, data.form)
-    uploadedImagePath.value = data.uploadedImagePath
-    uploadedImageData.value = data.uploadedImageData || null
-    if (data.uploadedImagePath) {
+async function loadSessionData() {
+  const data: CoverSessionData | null = sessionService.loadCoverData()
+  if (!data) {
+    return
+  }
+
+  Object.assign(form, data.form)
+  uploadedImagePath.value = data.uploadedImagePath
+  uploadedImageData.value = data.uploadedImageData || null
+  hasUploaded.value = Boolean(data.uploadedImagePath)
+
+  if (!userToken.value) {
+    return
+  }
+
+  try {
+    const { path, uploaded } = await ensureCoverImagePath({
+      userToken: userToken.value,
+      imagePath: uploadedImagePath.value,
+      imageData: uploadedImageData.value,
+      fileName: 'restored-cover-image',
+    })
+
+    if (path !== uploadedImagePath.value) {
+      uploadedImagePath.value = path
+    }
+
+    if (!path) {
+      hasUploaded.value = false
+    } else if (uploaded) {
       hasUploaded.value = true
     }
+  } catch (error) {
+    console.error('Failed to restore cover image from saved data', error)
+    uploadedImagePath.value = null
+    hasUploaded.value = false
   }
 }
 
@@ -352,9 +380,9 @@ function handlePageHide() {
   saveSessionData()
 }
 
-onMounted(() => {
+onMounted(async () => {
   userToken.value = sessionService.getUserToken()
-  loadSessionData()
+  await loadSessionData()
   if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', handleBeforeUnload)
     window.addEventListener('pagehide', handlePageHide)
