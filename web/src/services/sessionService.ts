@@ -76,6 +76,23 @@ export interface ConformanceClaimsSessionData {
   timestamp: number
 }
 
+export interface SpdEntry {
+  id: number
+  title: string
+  description: string
+}
+
+export interface SpdSessionData {
+  items: SpdEntry[]
+  nextId: number
+  userToken: string
+  timestamp: number
+}
+
+export type AssumptionsSessionData = SpdSessionData
+export type ThreatsSessionData = SpdSessionData
+export type OspSessionData = SpdSessionData
+
 class SessionService {
   private readonly STORAGE_KEY = 'ccgentool2_session'
   private readonly SAR_STORAGE_KEY = 'ccgentool2_sar_session'
@@ -85,6 +102,9 @@ class SessionService {
   private readonly TOE_OVERVIEW_STORAGE_KEY = 'ccgentool2_toeoverview_session'
   private readonly TOE_DESC_STORAGE_KEY = 'ccgentool2_toedesc_session'
   private readonly CONFORMANCE_CLAIMS_STORAGE_KEY = 'ccgentool2_conformance_session'
+  private readonly ASSUMPTIONS_STORAGE_KEY = 'ccgentool2_assumptions_session'
+  private readonly THREATS_STORAGE_KEY = 'ccgentool2_threats_session'
+  private readonly OSP_STORAGE_KEY = 'ccgentool2_osp_session'
   private readonly TOKEN_KEY = 'ccgentool2_user_token'
   private userToken: string
 
@@ -264,6 +284,57 @@ class SessionService {
   hasSarSessionData(): boolean {
     const storageKey = this.getNamespacedKey(this.SAR_STORAGE_KEY)
     return localStorage.getItem(storageKey) !== null
+  }
+
+  private saveSpdSectionData(baseKey: string, items: SpdEntry[], nextId: number): void {
+    const sessionData: SpdSessionData = {
+      items,
+      nextId,
+      userToken: this.userToken,
+      timestamp: Date.now()
+    }
+
+    try {
+      const storageKey = this.getNamespacedKey(baseKey)
+      localStorage.setItem(storageKey, JSON.stringify(sessionData))
+    } catch (error) {
+      console.error(`Error saving ${baseKey} data to session:`, error)
+    }
+  }
+
+  private loadSpdSectionData(baseKey: string): SpdSessionData | null {
+    try {
+      const storageKey = this.getNamespacedKey(baseKey)
+      const data = localStorage.getItem(storageKey)
+
+      if (!data) {
+        return null
+      }
+
+      const sessionData: SpdSessionData = JSON.parse(data)
+
+      if (sessionData.userToken !== this.userToken) {
+        console.warn(`Session token mismatch, ignoring stored ${baseKey} data`)
+        return null
+      }
+
+      sessionData.items = sessionData.items || []
+      sessionData.nextId = typeof sessionData.nextId === 'number' ? sessionData.nextId : sessionData.items.length + 1
+
+      return sessionData
+    } catch (error) {
+      console.error(`Error loading ${baseKey} data from session:`, error)
+      return null
+    }
+  }
+
+  private clearSpdSectionData(baseKey: string): void {
+    try {
+      const storageKey = this.getNamespacedKey(baseKey)
+      localStorage.removeItem(storageKey)
+    } catch (error) {
+      console.error(`Error clearing ${baseKey} data from session:`, error)
+    }
   }
 
   /**
@@ -546,6 +617,42 @@ class SessionService {
       console.error('Error loading TOE Description data from session:', error)
       return null
     }
+  }
+
+  saveAssumptionsData(items: SpdEntry[], nextId: number): void {
+    this.saveSpdSectionData(this.ASSUMPTIONS_STORAGE_KEY, items, nextId)
+  }
+
+  loadAssumptionsData(): AssumptionsSessionData | null {
+    return this.loadSpdSectionData(this.ASSUMPTIONS_STORAGE_KEY)
+  }
+
+  clearAssumptionsData(): void {
+    this.clearSpdSectionData(this.ASSUMPTIONS_STORAGE_KEY)
+  }
+
+  saveThreatsData(items: SpdEntry[], nextId: number): void {
+    this.saveSpdSectionData(this.THREATS_STORAGE_KEY, items, nextId)
+  }
+
+  loadThreatsData(): ThreatsSessionData | null {
+    return this.loadSpdSectionData(this.THREATS_STORAGE_KEY)
+  }
+
+  clearThreatsData(): void {
+    this.clearSpdSectionData(this.THREATS_STORAGE_KEY)
+  }
+
+  saveOspData(items: SpdEntry[], nextId: number): void {
+    this.saveSpdSectionData(this.OSP_STORAGE_KEY, items, nextId)
+  }
+
+  loadOspData(): OspSessionData | null {
+    return this.loadSpdSectionData(this.OSP_STORAGE_KEY)
+  }
+
+  clearOspData(): void {
+    this.clearSpdSectionData(this.OSP_STORAGE_KEY)
   }
 
   /**
