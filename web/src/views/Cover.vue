@@ -112,6 +112,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
 import { sessionService } from '../services/sessionService'
+import { coverPathMatchesUser, uploadCoverImageFromDataUrl } from '../utils/coverImage'
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragActive = ref(false)
@@ -251,11 +252,21 @@ async function openPreview() {
   // Remove any previously generated preview before creating a fresh one.
   cleanupDocx()
 
-  previewError.value = ''
-  showPreview.value = true
-  previewLoading.value = true
-
   try {
+    if (uploadedImageData.value) {
+      const pathMatches = coverPathMatchesUser(uploadedImagePath.value, userToken.value)
+      if (!pathMatches) {
+        const newPath = await uploadCoverImageFromDataUrl(uploadedImageData.value, userToken.value)
+        uploadedImagePath.value = newPath
+        hasUploaded.value = true
+        saveSessionData()
+      }
+    }
+
+    previewError.value = ''
+    showPreview.value = true
+    previewLoading.value = true
+
     const payload = {
       user_id: userToken.value,
       title: form.title,
@@ -280,6 +291,9 @@ async function openPreview() {
   } catch (error: any) {
     const message = error?.response?.data?.detail || error?.message || 'Unable to generate preview.'
     previewError.value = message
+    if (!showPreview.value) {
+      showPreview.value = true
+    }
   } finally {
     previewLoading.value = false
   }
