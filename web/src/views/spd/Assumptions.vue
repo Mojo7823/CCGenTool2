@@ -552,11 +552,12 @@ onBeforeUnmount(() => {
 .docx-modal-body {
   position: relative;
   min-height: 420px;
+  max-height: 70vh;
   border: 1px solid #374151;
   border-radius: 8px;
   background: #0f172a;
   padding: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .docx-preview-shell {
@@ -567,7 +568,7 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  min-height: 100%;
+  min-height: 420px;
 }
 
 .docx-preview-container {

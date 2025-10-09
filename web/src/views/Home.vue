@@ -51,6 +51,9 @@ function saveProject() {
       toeOverviewData: sessionService.loadTOEOverviewData(),
       toeDescriptionData: sessionService.loadTOEDescriptionData(),
       conformanceClaimsData: sessionService.loadConformanceClaimsData(),
+      assumptionsData: sessionService.loadAssumptionsData(),
+      threatsData: sessionService.loadThreatsData(),
+      ospData: sessionService.loadOspData(),
       sfrData: sessionService.loadSfrData(),
       sarData: sessionService.loadSarData(),
       exportedAt: new Date().toISOString(),
@@ -145,6 +148,24 @@ function loadProject(event: Event) {
           projectData.sarData.selectedSarId,
           projectData.sarData.nextSarId,
           projectData.sarData.selectedEal
+        )
+      }
+      if (projectData.assumptionsData) {
+        sessionService.saveAssumptionsData(
+          projectData.assumptionsData.items || [],
+          projectData.assumptionsData.nextId || 1
+        )
+      }
+      if (projectData.threatsData) {
+        sessionService.saveThreatsData(
+          projectData.threatsData.items || [],
+          projectData.threatsData.nextId || 1
+        )
+      }
+      if (projectData.ospData) {
+        sessionService.saveOspData(
+          projectData.ospData.items || [],
+          projectData.ospData.nextId || 1
         )
       }
 

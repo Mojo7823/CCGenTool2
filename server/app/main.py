@@ -153,6 +153,40 @@ def _resolve_uploaded_image_path(image_path: Optional[str], user_id: str) -> Opt
     return image_file
 
 
+def _add_cover_image_to_document(document: Document, cover_dict: dict, user_id: str) -> None:
+    """Add cover image to document, supporting both image_path and image_data (base64)."""
+    image_data_base64 = cover_dict.get("image_data")
+    image_path = cover_dict.get("image_path")
+    
+    # Try to use base64 image data first (for loaded projects)
+    if image_data_base64:
+        try:
+            image_bytes = _decode_base64_image(image_data_base64)
+            if image_bytes:
+                image_paragraph = document.add_paragraph()
+                image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                run = image_paragraph.add_run()
+                image_stream = BytesIO(image_bytes)
+                run.add_picture(image_stream, width=Mm(120))
+                image_paragraph.space_after = Pt(12)
+                return
+        except Exception:
+            pass  # Fall back to image_path if base64 fails
+    
+    # Fall back to image_path
+    if image_path:
+        try:
+            image_file = _resolve_uploaded_image_path(image_path, user_id)
+            if image_file:
+                image_paragraph = document.add_paragraph()
+                image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+                run = image_paragraph.add_run()
+                run.add_picture(str(image_file), width=Mm(120))
+                image_paragraph.space_after = Pt(12)
+        except Exception:
+            pass  # Skip if image not found
+
+
 def _format_cover_date(date_value: Optional[str]) -> str:
     if not date_value:
         return "—"
@@ -730,20 +764,9 @@ def _build_st_intro_combined_document(payload: STIntroPreviewRequest) -> Path:
     # Add cover page if provided
     if payload.cover_data:
         cover_dict = payload.cover_data
-        image_path = cover_dict.get("image_path")
         
         # Add cover image if present
-        if image_path:
-            try:
-                image_file = _resolve_uploaded_image_path(image_path, payload.user_id)
-                if image_file:
-                    image_paragraph = document.add_paragraph()
-                    image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-                    run = image_paragraph.add_run()
-                    run.add_picture(str(image_file), width=Mm(120))
-                    image_paragraph.space_after = Pt(12)
-            except:
-                pass  # Skip if image not found
+        _add_cover_image_to_document(document, cover_dict, payload.user_id)
         
         # Add cover title
         title_text = cover_dict.get("title", "").strip() or "Security Target Title"
@@ -865,20 +888,9 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
     # Page 1: Add cover page if provided
     if payload.cover_data:
         cover_dict = payload.cover_data
-        image_path = cover_dict.get("image_path")
         
         # Add cover image if present
-        if image_path:
-            try:
-                image_file = _resolve_uploaded_image_path(image_path, payload.user_id)
-                if image_file:
-                    image_paragraph = document.add_paragraph()
-                    image_paragraph.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-                    run = image_paragraph.add_run()
-                    run.add_picture(str(image_file), width=Mm(120))
-                    image_paragraph.space_after = Pt(12)
-            except:
-                pass  # Skip if image not found
+        _add_cover_image_to_document(document, cover_dict, payload.user_id)
         
         # Add cover title
         title_text = cover_dict.get("title", "").strip() or "Security Target Title"
