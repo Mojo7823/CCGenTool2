@@ -56,6 +56,8 @@ SAR_DOCX_ROOT = Path(os.getenv("SAR_DOCX_DIR", Path(tempfile.gettempdir()) / "cc
 SAR_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 ST_INTRO_DOCX_ROOT = Path(os.getenv("ST_INTRO_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_stintro_docx"))
 ST_INTRO_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
+SPD_DOCX_ROOT = Path(os.getenv("SPD_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_spd_docx"))
+SPD_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 FINAL_DOCX_ROOT = Path(os.getenv("FINAL_DOCX_DIR", Path(tempfile.gettempdir()) / "ccgentool2_final_docx"))
 FINAL_DOCX_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -127,6 +129,7 @@ class FinalPreviewRequest(BaseModel):
     toe_overview_html: Optional[str] = None
     toe_description_html: Optional[str] = None
     conformance_claims_html: Optional[str] = None
+    spd_html: Optional[str] = None
     sfr_list: List[dict] = Field(default_factory=list)
     sar_list: List[dict] = Field(default_factory=list)
     selected_eal: Optional[str] = None
@@ -411,6 +414,25 @@ def _append_inline_content(paragraph, element, inherited_styles: Optional[dict] 
     }, styles)
 
     tag = (element.tag or "").lower()
+
+    if tag == "br":
+        paragraph.add_run().add_break()
+        return
+
+    if tag in {"ul", "ol"}:
+        items = [child for child in element if (child.tag or "").lower() == "li"]
+        for idx, child in enumerate(items, start=1):
+            if idx > 1:
+                paragraph.add_run().add_break()
+            bullet = "• " if tag == "ul" else f"{idx}. "
+            bullet_run = paragraph.add_run(bullet)
+            _apply_styles_to_run(bullet_run, combined_styles)
+            _append_inline_content(paragraph, child, combined_styles)
+        tail = element.tail or ""
+        if tail:
+            run = paragraph.add_run(tail.replace("\xa0", " "))
+            _apply_styles_to_run(run, combined_styles)
+        return
 
     if tag == "img":
         image_data = _decode_base64_image(element.get("src", ""))
@@ -898,25 +920,46 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
         toe_desc_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.toe_description_html)
 
-    # Page 6: Add Conformance Claims section
+    # Page 6: Add Security Problem Definition section
+    if payload.spd_html:
+        document.add_page_break()
+        spd_heading = document.add_paragraph()
+        spd_run = spd_heading.add_run("2. Security Problem Definition")
+        spd_run.font.size = Pt(20)
+        spd_run.font.bold = True
+        spd_heading.space_before = Pt(12)
+        spd_heading.space_after = Pt(12)
+        _append_html_to_document(document, payload.spd_html)
+
+    # Page 7: Add Conformance Claims section
     if payload.conformance_claims_html:
         document.add_page_break()
         conf_heading = document.add_paragraph()
-        conf_run = conf_heading.add_run("2. Conformance Claims")
+        conf_run = conf_heading.add_run("3. Conformance Claims")
         conf_run.font.size = Pt(20)
         conf_run.font.bold = True
         conf_heading.space_before = Pt(12)
         conf_heading.space_after = Pt(8)
         _append_html_to_document(document, payload.conformance_claims_html)
 
-    # Page 7: Add Security Functional Requirements section
+    # Page 8: Add Security Requirements sections
+    security_section_added = False
+
     if payload.sfr_preview_html or (payload.sfr_list and len(payload.sfr_list) > 0):
         document.add_page_break()
+        security_heading = document.add_paragraph()
+        security_run = security_heading.add_run("4. Security Requirements")
+        security_run.font.size = Pt(20)
+        security_run.font.bold = True
+        security_heading.space_before = Pt(12)
+        security_heading.space_after = Pt(8)
+        security_section_added = True
+
         sfr_heading = document.add_paragraph()
-        sfr_run = sfr_heading.add_run("3. Security Functional Requirements")
-        sfr_run.font.size = Pt(20)
+        sfr_run = sfr_heading.add_run("4.1 Security Functional Requirements")
+        sfr_run.font.size = Pt(18)
         sfr_run.font.bold = True
-        sfr_heading.space_before = Pt(12)
+        sfr_heading.space_before = Pt(8)
         sfr_heading.space_after = Pt(12)
 
         if payload.sfr_preview_html:
@@ -927,14 +970,22 @@ def _build_final_combined_document(payload: FinalPreviewRequest) -> Path:
                     _append_html_to_document(document, sfr_item['preview'])
                     document.add_paragraph().space_after = Pt(12)
 
-    # Page 8: Add Security Assurance Requirements section
     if payload.sar_preview_html or (payload.sar_list and len(payload.sar_list) > 0):
-        document.add_page_break()
+        if not security_section_added:
+            document.add_page_break()
+            security_heading = document.add_paragraph()
+            security_run = security_heading.add_run("4. Security Requirements")
+            security_run.font.size = Pt(20)
+            security_run.font.bold = True
+            security_heading.space_before = Pt(12)
+            security_heading.space_after = Pt(8)
+            security_section_added = True
+
         sar_heading = document.add_paragraph()
-        sar_run = sar_heading.add_run("4. Security Assurance Requirements")
-        sar_run.font.size = Pt(20)
+        sar_run = sar_heading.add_run("4.2 Security Assurance Requirements")
+        sar_run.font.size = Pt(18)
         sar_run.font.bold = True
-        sar_heading.space_before = Pt(12)
+        sar_heading.space_before = Pt(8)
         sar_heading.space_after = Pt(12)
 
         if payload.sar_preview_html:
@@ -986,6 +1037,7 @@ app.mount("/cover/uploads", StaticFiles(directory=str(COVER_UPLOAD_ROOT)), name=
 app.mount("/cover/docx", StaticFiles(directory=str(COVER_DOCX_ROOT)), name="cover-docx")
 app.mount("/security/sfr/docx", StaticFiles(directory=str(SFR_DOCX_ROOT)), name="sfr-docx")
 app.mount("/security/sar/docx", StaticFiles(directory=str(SAR_DOCX_ROOT)), name="sar-docx")
+app.mount("/spd/docx", StaticFiles(directory=str(SPD_DOCX_ROOT)), name="spd-docx")
 app.mount("/st-intro/docx", StaticFiles(directory=str(ST_INTRO_DOCX_ROOT)), name="st-intro-docx")
 app.mount("/final-preview/docx", StaticFiles(directory=str(FINAL_DOCX_ROOT)), name="final-docx")
 
@@ -1452,6 +1504,15 @@ async def generate_sar_preview(payload: HtmlPreviewRequest):
     return {"path": f"/security/sar/docx/{payload.user_id}/{output_path.name}"}
 
 
+@app.post("/spd/preview")
+async def generate_spd_preview(payload: HtmlPreviewRequest):
+    if not payload.user_id:
+        raise HTTPException(status_code=400, detail="User identifier is required")
+
+    output_path = _build_html_preview_document(payload.html_content, payload.user_id, SPD_DOCX_ROOT)
+    return {"path": f"/spd/docx/{payload.user_id}/{output_path.name}"}
+
+
 @app.post("/st-intro/preview")
 async def generate_st_intro_preview(payload: STIntroPreviewRequest):
     if not payload.user_id:
@@ -1495,6 +1556,14 @@ async def cleanup_sfr_preview(user_id: str):
 @app.delete("/security/sar/preview/{user_id}")
 async def cleanup_sar_preview(user_id: str):
     docx_dir = _get_preview_docx_dir(SAR_DOCX_ROOT, user_id, create=False)
+    if docx_dir.exists():
+        shutil.rmtree(docx_dir)
+    return {"status": "deleted"}
+
+
+@app.delete("/spd/preview/{user_id}")
+async def cleanup_spd_preview(user_id: str):
+    docx_dir = _get_preview_docx_dir(SPD_DOCX_ROOT, user_id, create=False)
     if docx_dir.exists():
         shutil.rmtree(docx_dir)
     return {"status": "deleted"}
