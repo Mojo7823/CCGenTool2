@@ -111,7 +111,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { renderAsync } from 'docx-preview'
 import api from '../services/api'
-import { sessionService } from '../services/sessionService'
+import { sessionService, type CoverSessionData } from '../services/sessionService'
+import { ensureCoverImageUploaded } from '../utils/coverImage'
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const dragActive = ref(false)
@@ -152,16 +153,35 @@ function saveSessionData() {
   sessionService.saveCoverData(form, uploadedImagePath.value, uploadedImageData.value)
 }
 
-function loadSessionData() {
+async function loadSessionData() {
   const data = sessionService.loadCoverData()
-  if (data) {
-    Object.assign(form, data.form)
-    uploadedImagePath.value = data.uploadedImagePath
-    uploadedImageData.value = data.uploadedImageData || null
-    if (data.uploadedImagePath) {
-      hasUploaded.value = true
+  if (!data) {
+    return
+  }
+
+  Object.assign(form, data.form)
+  uploadedImageData.value = data.uploadedImageData || null
+
+  let path = data.uploadedImagePath
+
+  if (uploadedImageData.value) {
+    const formSnapshot: CoverSessionData['form'] = { ...form }
+    const restoredPath = await ensureCoverImageUploaded(
+      {
+        form: formSnapshot,
+        uploadedImagePath: path,
+        uploadedImageData: uploadedImageData.value,
+      },
+      { force: !path }
+    )
+
+    if (restoredPath !== undefined && restoredPath !== null) {
+      path = restoredPath
     }
   }
+
+  uploadedImagePath.value = path
+  hasUploaded.value = Boolean(path)
 }
 
 // Watch form changes and save to session
@@ -256,6 +276,18 @@ async function openPreview() {
   previewLoading.value = true
 
   try {
+    if (uploadedImageData.value) {
+      const formSnapshot: CoverSessionData['form'] = { ...form }
+      const ensuredPath = await ensureCoverImageUploaded({
+        form: formSnapshot,
+        uploadedImagePath: uploadedImagePath.value,
+        uploadedImageData: uploadedImageData.value,
+      })
+      if (ensuredPath !== undefined && ensuredPath !== uploadedImagePath.value) {
+        uploadedImagePath.value = ensuredPath
+      }
+    }
+
     const payload = {
       user_id: userToken.value,
       title: form.title,
@@ -354,7 +386,7 @@ function handlePageHide() {
 
 onMounted(() => {
   userToken.value = sessionService.getUserToken()
-  loadSessionData()
+  void loadSessionData()
   if (typeof window !== 'undefined') {
     window.addEventListener('beforeunload', handleBeforeUnload)
     window.addEventListener('pagehide', handlePageHide)

@@ -545,28 +545,31 @@ onBeforeUnmount(() => {
 .docx-modal {
   width: min(900px, 95vw);
   max-height: 90vh;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .docx-modal-body {
   position: relative;
-  min-height: 420px;
+  flex: 1 1 420px;
+  min-height: 0;
   border: 1px solid #374151;
   border-radius: 8px;
   background: #0f172a;
   padding: 0;
   overflow: hidden;
+  display: flex;
 }
 
 .docx-preview-shell {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 24px;
   background: #d1d5db;
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  min-height: 100%;
 }
 
 .docx-preview-container {
