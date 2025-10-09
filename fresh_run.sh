@@ -33,33 +33,6 @@ fi
 echo "🔧 Building and starting backend services..."
 docker compose up -d --build
 
-# Step 6: Wait for services to be ready
-echo "⏳ Waiting for services to be ready..."
-echo "   Checking database health..."
-timeout=60
-counter=0
-while ! docker compose exec -T db pg_isready -U postgres -d appdb >/dev/null 2>&1; do
-    if [ $counter -eq $timeout ]; then
-        echo "❌ Database failed to start within $timeout seconds"
-        exit 1
-    fi
-    echo "   Database not ready yet... waiting ($counter/$timeout)"
-    sleep 1
-    ((counter++))
-done
-
-echo "   Checking API health..."
-counter=0
-while ! curl -s http://localhost:8000/health >/dev/null 2>&1; do
-    if [ $counter -eq $timeout ]; then
-        echo "❌ API failed to start within $timeout seconds"
-        exit 1
-    fi
-    echo "   API not ready yet... waiting ($counter/$timeout)"
-    sleep 1
-    ((counter++))
-done
-
 # Step 7: Setup frontend
 echo "🎨 Setting up frontend..."
 cd web
