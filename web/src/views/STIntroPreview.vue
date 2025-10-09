@@ -81,6 +81,7 @@ import {
   type TOEOverviewSessionData,
   type TOEDescriptionSessionData,
 } from '../services/sessionService'
+import { ensureCoverImageUploaded } from '../utils/coverImage'
 
 type SectionKey = 'cover' | 'st-reference' | 'toe-reference' | 'toe-overview' | 'toe-description'
 
@@ -307,6 +308,42 @@ async function generatePreview() {
 
   try {
     const coverData = sessionService.loadCoverData()
+    let coverPayload: {
+      title: string
+      version: string
+      revision: string
+      description: string
+      manufacturer: string
+      date: string
+      image_path: string | null
+    } | null = null
+
+    if (coverData) {
+      let imagePath = coverData.uploadedImagePath
+      if (coverData.uploadedImageData) {
+        const ensuredPath = await ensureCoverImageUploaded(
+          {
+            form: coverData.form,
+            uploadedImagePath: imagePath,
+            uploadedImageData: coverData.uploadedImageData,
+          },
+          { force: !imagePath }
+        )
+        if (ensuredPath !== undefined) {
+          imagePath = ensuredPath
+        }
+      }
+
+      coverPayload = {
+        title: coverData.form.title,
+        version: coverData.form.version,
+        revision: coverData.form.revision,
+        description: coverData.form.description,
+        manufacturer: coverData.form.manufacturer,
+        date: coverData.form.date,
+        image_path: imagePath || null,
+      }
+    }
     const stReferenceHTML = buildSTReferenceHTML()
     const toeReferenceHTML = buildTOEReferenceHTML()
     const toeOverviewHTML = buildTOEOverviewHTML()
@@ -314,17 +351,7 @@ async function generatePreview() {
 
     const payload = {
       user_id: userToken.value,
-      cover_data: coverData
-        ? {
-            title: coverData.form.title,
-            version: coverData.form.version,
-            revision: coverData.form.revision,
-            description: coverData.form.description,
-            manufacturer: coverData.form.manufacturer,
-            date: coverData.form.date,
-            image_path: coverData.uploadedImagePath,
-          }
-        : null,
+      cover_data: coverPayload,
       st_reference_html: stReferenceHTML || null,
       toe_reference_html: toeReferenceHTML || null,
       toe_overview_html: toeOverviewHTML || null,

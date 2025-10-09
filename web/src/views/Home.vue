@@ -29,7 +29,8 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { sessionService } from '../services/sessionService'
+import { sessionService, type CoverSessionData } from '../services/sessionService'
+import { ensureCoverImageUploaded } from '../utils/coverImage'
 
 const statusMessage = ref('')
 const statusMessageType = ref<'success' | 'error'>('success')
@@ -53,6 +54,9 @@ function saveProject() {
       conformanceClaimsData: sessionService.loadConformanceClaimsData(),
       sfrData: sessionService.loadSfrData(),
       sarData: sessionService.loadSarData(),
+      assumptionsData: sessionService.loadAssumptionsData(),
+      threatsData: sessionService.loadThreatsData(),
+      ospData: sessionService.loadOspData(),
       exportedAt: new Date().toISOString(),
     }
 
@@ -73,14 +77,48 @@ function saveProject() {
   }
 }
 
+function persistSpdSection(
+  saveFn: (items: any[], nextId: number) => void,
+  sectionData: { items?: any[]; nextId?: number } | undefined | null,
+): void {
+  const rawItems = sectionData?.items
+  const items = Array.isArray(rawItems) ? rawItems : []
+  const nextId = typeof sectionData?.nextId === 'number' ? sectionData.nextId : items.length + 1
+  saveFn(items, nextId)
+}
+
+async function restoreCoverUpload(coverData: CoverSessionData | null) {
+  if (!coverData?.uploadedImageData) {
+    return
+  }
+
+  const formSnapshot: CoverSessionData['form'] = {
+    title: coverData.form.title || '',
+    version: coverData.form.version || '',
+    revision: coverData.form.revision || '',
+    description: coverData.form.description || '',
+    manufacturer: coverData.form.manufacturer || '',
+    date: coverData.form.date || '',
+  }
+
+  await ensureCoverImageUploaded(
+    {
+      form: formSnapshot,
+      uploadedImagePath: coverData.uploadedImagePath,
+      uploadedImageData: coverData.uploadedImageData,
+    },
+    { force: true },
+  )
+}
+
 function loadProject(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
-  
+
   if (!file) return
 
   const reader = new FileReader()
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     try {
       const content = e.target?.result as string
       const projectData = JSON.parse(content)
@@ -92,6 +130,7 @@ function loadProject(event: Event) {
           projectData.coverData.uploadedImagePath,
           projectData.coverData.uploadedImageData || null
         )
+        await restoreCoverUpload(projectData.coverData)
       }
       if (projectData.stReferenceData) {
         sessionService.saveSTReferenceData({
@@ -147,9 +186,18 @@ function loadProject(event: Event) {
           projectData.sarData.selectedEal
         )
       }
+      if (projectData.assumptionsData) {
+        persistSpdSection(sessionService.saveAssumptionsData.bind(sessionService), projectData.assumptionsData)
+      }
+      if (projectData.threatsData) {
+        persistSpdSection(sessionService.saveThreatsData.bind(sessionService), projectData.threatsData)
+      }
+      if (projectData.ospData) {
+        persistSpdSection(sessionService.saveOspData.bind(sessionService), projectData.ospData)
+      }
 
       showStatus('Project loaded successfully!', 'success')
-      
+
       // Reload the page to reflect changes
       setTimeout(() => {
         window.location.reload()
